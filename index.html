@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#07060f">
+<!-- 홈 화면에 추가하면 앱처럼 전체화면 실행 (아이폰은 이 방법만 가능) -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NOCTURNE">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<title>NOCTURNE 불시착</title>
+<meta name="description" content="인류 이주선이 미확인 행성에 불시착했다. 1~4인 협동 생존 탈출 게임.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- 인게임 HUD -->
+<div id="hud" class="hidden">
+  <canvas id="compass" width="640" height="58"></canvas>
+  <div id="mission"><div id="mTitle"></div><ul id="mObjs"></ul></div>
+  <div id="clock"></div>
+  <div id="team"></div>
+  <div id="countdown"></div>
+  <div id="stormTag"></div>
+  <div id="syncBar"></div>
+  <div id="cross"></div>
+  <div id="prompt" data-vkey="KeyE"><div id="promptRing"></div><span id="promptText"></span></div>
+  <div id="toasts"></div>
+  <div id="bottom">
+    <div id="carryTag"></div>
+    <div id="beaconBar"><span id="beaconTxt"></span><div><i id="beaconFill"></i></div></div>
+    <div id="stamWrap"><div id="stam"></div></div>
+    <div class="tags"><span id="flTag"></span><span id="flareCnt"></span><span class="k">[Tab] 휴대폰</span></div>
+  </div>
+  <div id="banner"></div>
+  <div id="clickHint">화면을 클릭하면 마우스로 둘러볼 수 있어요</div>
+</div>
+<div id="vignette"></div>
+<div id="danger"></div>
+<div id="lids"><div class="lid top"></div><div class="lid bot"></div></div>
+<div id="fade"></div>
+
+<!-- 모바일 터치 조작 (로블록스식) -->
+<div id="touch">
+  <div id="stick"><div id="knob"></div></div>
+  <div class="t-top">
+    <button data-act="phone">📱</button><button data-act="chat">💬</button><button data-vtap="KeyV" title="시점">🎥</button><button data-act="fs" class="fs-btn">⛶</button><button data-act="pause">☰</button>
+  </div>
+  <div class="t-btns">
+    <button class="t-jump" data-vkey="Space">⤒</button>
+    <button class="t-use" data-vkey="KeyE">E</button>
+    <button class="t-sm t-crouch" data-toggle="KeyC">🧎</button>
+    <button class="t-sm t-light" data-vtap="KeyL">🔦</button>
+    <button class="t-sm t-flare" data-vtap="KeyF">🧨</button>
+    <button class="t-sm t-ping" data-vtap="KeyQ">📍</button>
+  </div>
+</div>
+<div id="rotate">📱↻<br>가로로 돌려 주세요</div>
+
+<!-- 휴대폰 -->
+<div id="phone">
+  <div class="ph-frame">
+    <div class="ph-status"><span id="phTime">MIRA OS</span><span id="phSig">NO SERVICE</span><span>🔋23%</span></div>
+    <div class="ph-bar"><button id="phBack">‹ 홈</button><button id="phClose">✕</button></div>
+    <div id="phHome"></div>
+    <div id="phScreen"></div>
+  </div>
+</div>
+
+<!-- 주파수 튜너 -->
+<div id="tuner">
+  <div class="tn-box">
+    <h3>📡 중계기 주파수 맞추기</h3>
+    <canvas id="tunerCv" width="480" height="180"></canvas>
+    <div class="tn-lock"><div id="tunerLock"></div></div>
+    <p id="tunerInfo"></p>
+    <p class="hint">빨간 파형에 파란 파형을 겹치세요 · <b>A/D</b> 주파수 · <b>W/S</b> 진폭 · 휠 미세조정 · <b>E</b> 닫기</p>
+    <div class="tn-touch"><button data-vkey="KeyA">주파수 ◀</button><button data-vkey="KeyD">▶</button><button data-vkey="KeyS">진폭 ▼</button><button data-vkey="KeyW">▲</button><button data-vtap="KeyE">닫기</button></div>
+  </div>
+</div>
+
+<!-- 채팅 -->
+<input id="chatIn" maxlength="140" placeholder="메시지 입력 후 Enter (Esc 취소)" autocomplete="off">
+
+<!-- 일시정지 -->
+<div id="pause">
+  <div class="panel">
+    <h2>일시정지</h2>
+    <div id="inviteBox"></div>
+    <label>마우스 감도 <input id="sens" type="range" min="0.3" max="2.5" step="0.1"></label>
+    <label>음량 <input id="vol" type="range" min="0" max="1" step="0.05"></label>
+    <button id="fsBtn2" class="fs-btn">⛶ 전체화면</button>
+    <div class="row"><button id="resume" class="primary">계속하기</button><button id="quit">타이틀로</button></div>
+    <p class="hint">멀티플레이 중에는 게임이 멈추지 않아요.</p>
+  </div>
+</div>
+
+<!-- 타이틀/로비 -->
+<div id="menu">
+  <div class="m-in">
+    <div class="logo"><small>CRASH LANDING ON KX-9</small><h1>NOCTURNE</h1><h2>녹턴: 불시착</h2></div>
+    <p class="story">2187년. 인류 이주선단의 <b>아르카디아 7호</b>는 새 정착지 <b>케플러-442b</b>로 향하던 중 항로를 이탈해,<br>미확인 행성 <b>KX-9 "녹턴"</b>에 추락한다. 흩어진 부품을 모으고, 부서진 부품은 이 행성의 재료로 대신 만들어 탈출하라.<br>그리고 — 밤을 조심하라.</p>
+    <div id="mMain">
+      <input id="nameIn" maxlength="12" placeholder="대원 이름">
+      <div id="roles">
+        <button data-role="scout"><b>🏃 정찰병</b><small>더 빠르고 오래 달림 · 덜 들킴</small></button>
+        <button data-role="engineer"><b>🔧 엔지니어</b><small>채집 2배 빠름 · 튜닝 쉬움</small></button>
+        <button data-role="medic"><b>⛑️ 의무병</b><small>동료를 1초 만에 일으킴</small></button>
+      </div>
+      <div id="joinBox"></div>
+      <div class="row">
+        <button id="soloBtn" class="primary">혼자 시작</button>
+        <button id="hostBtn">방 만들기 (2~4인)</button>
+      </div>
+      <div class="row code"><input id="codeIn" maxlength="5" placeholder="방 코드 5자리" autocomplete="off" autocapitalize="characters"><button id="codeBtn">코드로 참가</button></div>
+      <div id="iosTip"><b>📱 아이폰은 Safari에서 전체화면이 안 돼요</b><ol><li>아래쪽 <b>공유 버튼(□↑)</b> 누르기</li><li><b>"홈 화면에 추가"</b> 선택</li><li>홈 화면의 <b>NOCTURNE</b> 아이콘으로 실행 → 주소창 없이 전체화면</li></ol><small>앱으로 실행하면 초대 링크 대신 위의 <b>방 코드</b>를 입력해 참가하세요.</small></div>
+      <button id="fsBtn" class="fs-btn">⛶ 전체화면으로 하기</button>
+      <label id="contWrap"><input type="checkbox" id="contChk"> 저장된 게임 이어하기</label>
+      <p class="hint">방을 만들면 초대 링크가 생겨요. 친구는 링크만 열면 바로 합류합니다. · 예상 플레이 1~2시간 · 혼자 해도 끝까지 갈 수 있어요.</p>
+    </div>
+    <div id="lobby">
+      <h3>대기실</h3>
+      <div id="lobbyLink"></div>
+      <ul id="lobbyList"></ul>
+      <div class="row"><button id="startBtn" class="primary">출발 (불시착 시작)</button></div>
+      <p id="lobbyWait" class="hint"></p>
+    </div>
+    <p id="mErr"></p>
+    <p class="credits">WASD 이동 · E 상호작용 · Tab 휴대폰 · L 손전등 · Q 핑 · V 시점</p>
+  </div>
+</div>
+
+<div id="ending"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
