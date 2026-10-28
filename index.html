@@ -49,16 +49,17 @@
 <div id="danger"></div>
 <div id="lids"><div class="lid top"></div><div class="lid bot"></div></div>
 <div id="fade"></div>
+<div id="cineBars"><i></i><i></i></div>
 
 <!-- 모바일 터치 조작 (로블록스식) -->
 <div id="touch">
-  <div id="stick"><div id="knob"></div></div>
+  <div id="stick"><div id="knob"></div><span class="run-tag">달리기</span></div>
   <div class="t-top">
     <button data-act="phone">📱</button><button data-act="chat">💬</button><button data-vtap="KeyV" title="시점">🎥</button><button data-act="fs" class="fs-btn">⛶</button><button data-act="pause">☰</button>
   </div>
   <div class="t-btns">
     <button class="t-jump" data-vkey="Space">⤒</button>
-    <button class="t-use" data-vkey="KeyE">E</button>
+    <button class="t-use idle" data-vkey="KeyE"><i class="ring"></i><span class="ic">✋</span><b class="vb">사용</b><small class="tg"></small></button>
     <button class="t-sm t-crouch" data-toggle="KeyC">🧎</button>
     <button class="t-sm t-light" data-vtap="KeyL">🔦</button>
     <button class="t-sm t-flare" data-vtap="KeyF">🧨</button>
@@ -97,7 +98,11 @@
   <div class="panel">
     <h2>일시정지</h2>
     <div id="inviteBox"></div>
-    <label>마우스 감도 <input id="sens" type="range" min="0.3" max="2.5" step="0.1"></label>
+    <label>그래픽 품질 <select id="qSel"><option value="auto">자동 (추천)</option><option value="low">낮음 — 옛날 폰</option><option value="mid">보통</option><option value="high">높음 — PC</option></select></label>
+    <p class="hint" id="qInfo"></p><p class="hint" id="qNote"></p>
+    <label>시점 감도 <input id="sens" type="range" min="0.3" max="2.5" step="0.1"></label>
+    <label class="touch-only">버튼 크기 <select id="bSize"><option value="0.85">작게</option><option value="1">보통</option><option value="1.2">크게</option></select></label>
+    <label class="touch-only">진동 <input type="checkbox" id="vibe"></label>
     <label>음량 <input id="vol" type="range" min="0" max="1" step="0.05"></label>
     <button id="fsBtn2" class="fs-btn">⛶ 전체화면</button>
     <div class="row"><button id="resume" class="primary">계속하기</button><button id="quit">타이틀로</button></div>

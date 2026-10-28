@@ -3,11 +3,12 @@ import * as THREE from 'three';
 import { height, P, HALF, WATER_Y, mulberry32, SEED, fbm, smooth, inLake } from './terrain.js';
 import { isNight, SAFE_R } from './host.js';
 import { SYNCS } from './data.js';
+import { Q, mat, glowTexture, glowSprite } from './quality.js';
 
 export const FLOOR = { x0: -4, x1: 4, z0: -3, z1: 3, y: 0.2 };
 const C = h => new THREE.Color(h);
-const std = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...o });
-const glow = (color, emissive, k = 1, o = {}) => new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: k, roughness: 0.5, ...o });
+const std = (color, o = {}) => mat({ color, roughness: 0.85, ...o });
+const glow = (color, emissive, k = 1, o = {}) => mat({ color, emissive, emissiveIntensity: k, roughness: 0.5, ...o });
 
 // 낮=1, 밤=0
 export function dayFactor(t) {
@@ -28,7 +29,8 @@ export class World {
     this.R = mulberry32(SEED + 9);
     this.clock = 0;
     this.buildLights(); this.buildSky(); this.buildTerrain(); this.buildWater();
-    this.buildDecor(); this.buildShip(); this.buildEntities(); this.buildSpores();
+    this.glowPts = [];
+    this.buildDecor(); this.buildShip(); this.buildEntities(); this.buildSpores(); this.buildGlowField();
   }
 
   // ───────── 충돌 ─────────
@@ -72,7 +74,7 @@ export class World {
     const s = this.scene;
     this.hemi = new THREE.HemisphereLight('#d8c4ff', '#3a2a40', 1.1); s.add(this.hemi);
     this.sun = new THREE.DirectionalLight('#ffe2c4', 2.6);
-    this.sun.castShadow = !this.low;
+    this.sun.castShadow = Q.shadows;
     this.sun.shadow.mapSize.set(2048, 2048);
     const sc = this.sun.shadow.camera; sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60; sc.near = 1; sc.far = 400;
     this.sun.shadow.bias = -0.0004; this.sun.shadow.normalBias = 0.04;
@@ -82,13 +84,27 @@ export class World {
 
   buildSky() {
     this.skyGroup = new THREE.Group(); this.scene.add(this.skyGroup);
-    this.skyU = { top: { value: C('#4a2f80') }, bot: { value: C('#e6a7c9') }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: C('#ffd9a8') }, night: { value: 0 } };
+    this.skyU = { top: { value: C('#4a2f80') }, bot: { value: C('#e6a7c9') }, sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: C('#ffd9a8') }, night: { value: 0 }, uTime: { value: 0 } };
     const sky = new THREE.Mesh(new THREE.SphereGeometry(1000, 32, 16), new THREE.ShaderMaterial({
-      uniforms: this.skyU, side: THREE.BackSide, depthWrite: false, fog: false,
+      uniforms: this.skyU, side: THREE.BackSide, depthWrite: false, fog: false, defines: Q.nebula ? { NEBULA: 1 } : {},
       vertexShader: 'varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-      fragmentShader: `uniform vec3 top,bot,sunDir,sunCol; uniform float night; varying vec3 vP;
+      fragmentShader: `uniform vec3 top,bot,sunDir,sunCol; uniform float night,uTime; varying vec3 vP;
+        float hash(vec2 p){ return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+        float noise(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y); }
         void main(){ float h=clamp(vP.y*1.3+0.12,0.,1.); vec3 c=mix(bot,top,pow(h,0.65));
-          float s=max(dot(vP,normalize(sunDir)),0.); c+=sunCol*(pow(s,700.)*3.+pow(s,10.)*0.3)*(1.-night);
+          float s=max(dot(vP,normalize(sunDir)),0.); c+=sunCol*(pow(s,700.)*3.+pow(s,10.)*0.3+pow(s,3.)*0.12)*(1.-night);
+          float band=exp(-pow(dot(vP,normalize(vec3(0.6,0.25,-0.75)))*3.2,2.))*smoothstep(-0.05,0.35,vP.y);
+          #ifdef NEBULA
+            vec2 uv=vP.xz/(vP.y+0.35)*1.3;
+            float n=noise(uv*1.4)*0.6+noise(uv*2.9+3.)*0.3+noise(uv*6.1)*0.1;
+            vec3 neb=mix(vec3(0.42,0.12,0.62),vec3(0.08,0.45,0.62),noise(uv*0.7+7.));
+            c+=neb*n*band*0.75*night;
+            float au=smoothstep(0.12,0.4,vP.y)*(1.-smoothstep(0.42,0.85,vP.y))*(0.5+0.5*sin(vP.x*8.+uTime*0.25+noise(vec2(vP.z*3.,uTime*0.04))*5.));
+            c+=vec3(0.12,0.85,0.55)*au*au*0.15*night;
+          #else
+            c+=vec3(0.3,0.12,0.5)*band*0.3*night;
+          #endif
+          c=mix(c,bot*1.15,smoothstep(0.14,-0.04,vP.y)*0.55);
           gl_FragColor=vec4(c,1.);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
@@ -154,13 +170,27 @@ export class World {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, flatShading: true }));
+    const nrm = geo.attributes.normal, cRock = C('#4a3f57'), cTeal = C('#2f5d5a'), cMag = C('#5a2c5c');
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i), z = pos.getZ(i), ny = nrm.getY(i);
+      c.setRGB(col[i * 3], col[i * 3 + 1], col[i * 3 + 2]);
+      c.lerp(cRock, smooth(0.93, 0.68, ny) * 0.7);
+      const patch = fbm(x * 0.013 + 7, z * 0.013 - 3, 3);
+      c.lerp(patch > 0.5 ? cTeal : cMag, smooth(0.05, 0.22, Math.abs(patch - 0.5)) * 0.28);
+      col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+    }
+    geo.attributes.color.needsUpdate = true;
+    const mesh = new THREE.Mesh(geo, mat({ vertexColors: true, roughness: 0.95, flatShading: true }));
     mesh.receiveShadow = true;
     this.scene.add(mesh);
   }
 
   buildWater() {
-    this.waterMat = new THREE.MeshStandardMaterial({ color: '#2b7f9e', transparent: true, opacity: 0.82, roughness: 0.12, metalness: 0.2, emissive: '#06303e', emissiveIntensity: 1 });
+    const wc = document.createElement('canvas'); wc.width = wc.height = 128;
+    const wx = wc.getContext('2d'); wx.fillStyle = '#9db3bf'; wx.fillRect(0, 0, 128, 128);
+    for (let i = 0; i < 70; i++) { wx.strokeStyle = `rgba(255,255,255,${0.08 + Math.random() * 0.2})`; wx.lineWidth = 1 + Math.random() * 2; wx.beginPath(); const y = Math.random() * 128, x = Math.random() * 128; wx.ellipse(x, y, 8 + Math.random() * 18, 2 + Math.random() * 3, 0, 0, Math.PI * 2); wx.stroke(); }
+    this.waterTex = new THREE.CanvasTexture(wc); this.waterTex.wrapS = this.waterTex.wrapT = THREE.RepeatWrapping; this.waterTex.repeat.set(14, 14);
+    this.waterMat = mat({ color: '#3a9cc0', map: this.waterTex, transparent: true, opacity: 0.85, roughness: 0.12, metalness: 0.2, emissive: '#06303e', emissiveIntensity: 1 });
     const w = new THREE.Mesh(new THREE.CircleGeometry(115, 64), this.waterMat);
     w.rotation.x = -Math.PI / 2; w.position.set(P.LAKE.x, WATER_Y, P.LAKE.z);
     this.scene.add(w);
@@ -199,20 +229,23 @@ export class World {
     const clearZone = (x, z) => Math.hypot(x + 10, z) < 26 || inLake(x, z) || d(P.HILL, x, z) < 6;
 
     // 바위
-    const rocks = this.scatter(280, (x, z) => clearZone(x, z) ? null : { x, z, s: 0.5 + R() ** 2 * 3.2, rx: R() * 3, ry: R() * 3, sy: 0 });
+    const keep = arr => Q.decor >= 1 ? arr : arr.filter((_, i) => (i * 0.618034) % 1 < Q.decor);
+    const rocks = keep(this.scatter(280, (x, z) => clearZone(x, z) ? null : { x, z, s: 0.5 + R() ** 2 * 3.2, rx: R() * 3, ry: R() * 3, sy: 0 }));
     for (const r of rocks) { r.sy = r.s * (0.5 + R() * 0.5); r.y = height(r.x, r.z) - r.s * 0.2; if (r.s > 1.3) this.addCircle(r.x, r.z, r.s * 0.85); }
     this.inst(new THREE.DodecahedronGeometry(1, 0), std('#5d5168', { flatShading: true }), rocks);
 
     // 외계 나무 (가는 기둥 + 빛나는 구)
-    const trees = this.scatter(230, (x, z) => {
+    const trees = keep(this.scatter(230, (x, z) => {
       if (clearZone(x, z) || d(P.FOREST, x, z) < 70 || d(P.CRYSTAL, x, z) < 60 || d(P.NEST, x, z) < 45 || d(P.RESIN, x, z) < 45 || height(x, z) > 34) return null;
       return { x, z, s: 1, sx: 1, sy: 5 + R() * 9, sz: 1, ry: R() * 6, rz: (R() - 0.5) * 0.2 };
-    });
+    }));
     trees.forEach(t => this.addCircle(t.x, t.z, 0.45));
     const trunk = new THREE.CylinderGeometry(0.12, 0.35, 1, 6); trunk.translate(0, 0.5, 0);
     this.inst(trunk, std('#4a3a55'), trees);
     this.bulbMat = glow('#ff8ad9', '#ff3fbf', 0.5);
-    this.inst(new THREE.IcosahedronGeometry(1, 1), this.bulbMat, trees.map(t => ({ x: t.x, z: t.z, y: height(t.x, t.z) + t.sy, s: 0.6 + R() * 0.7 })));
+    const bulbs = trees.map(t => ({ x: t.x, z: t.z, y: height(t.x, t.z) + t.sy, s: 0.6 + R() * 0.7 }));
+    this.inst(new THREE.IcosahedronGeometry(1, 1), this.bulbMat, bulbs);
+    for (const b of bulbs) this.glowPts.push([b.x, b.y, b.z, '#ff5fd0', b.s * 5]);
 
     // 거대 버섯 숲
     const shrooms = [];
@@ -227,6 +260,7 @@ export class World {
     this.capMat = glow('#3a2a6a', '#29c6ff', 0.35);
     const cap = new THREE.SphereGeometry(1, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2);
     this.inst(cap, this.capMat, shrooms.map(s => ({ x: s.x, z: s.z, y: height(s.x, s.z) + s.sy - 0.2, s: s.cap, sy: s.cap * 0.45, ry: R() * 6 })));
+    for (const m of shrooms) this.glowPts.push([m.x, height(m.x, m.z) + m.sy - 0.4, m.z, '#1f9fd6', m.cap * 2.6]);
 
     // 결정 평원
     const crys = [];
@@ -239,6 +273,7 @@ export class World {
     this.crystalMat = glow('#9fefff', '#2fc8ff', 0.6, { roughness: 0.15, metalness: 0.1, flatShading: true });
     const cg = new THREE.CylinderGeometry(0, 0.45, 1, 6); cg.translate(0, 0.45, 0);
     this.inst(cg, this.crystalMat, crys);
+    for (const c of crys) if (c.s > 0.9) this.glowPts.push([c.x, height(c.x, c.z) + c.sy * 0.6, c.z, '#4fd8ff', c.s * 4]);
 
     // 호박나무 숲
     const resin = [];
@@ -266,11 +301,21 @@ export class World {
     for (let i = 0; i < 30; i++) { const a = R() * 6.283, r = 6 + R() * 18; pods.push({ x: P.NEST.x + Math.cos(a) * r, z: P.NEST.z + Math.sin(a) * r, s: 0.5 + R() * 0.9 }); }
     this.podMat = glow('#5a1830', '#ff2d6a', 0.4);
     this.inst(new THREE.SphereGeometry(1, 10, 8), this.podMat, pods);
+    for (const p of pods) this.glowPts.push([p.x, height(p.x, p.z) + p.s * 0.5, p.z, '#ff2d6a', p.s * 4]);
 
     // 풀
-    const grass = this.scatter(this.low ? 1000 : 3200, (x, z) => (Math.hypot(x + 10, z) < 14 || inLake(x, z) || height(x, z) > 30) ? null :
+    const grass = this.scatter(Q.grass, (x, z) => (Math.hypot(x + 10, z) < 14 || inLake(x, z) || height(x, z) > 30) ? null :
       { x, z, s: 0.6 + R() * 0.8, ry: R() * 6, rz: (R() - 0.5) * 0.4 });
-    this.inst(new THREE.ConeGeometry(0.07, 0.7, 3).translate(0, 0.3, 0), std('#4fae9c'), grass, false);
+    const grassMat = std('#4fae9c');
+    this.wind = { uTime: { value: 0 }, uWind: { value: 1 } };
+    grassMat.onBeforeCompile = sh => {
+      Object.assign(sh.uniforms, this.wind);
+      sh.vertexShader = 'uniform float uTime, uWind;\n' + sh.vertexShader.replace('#include <begin_vertex>', `#include <begin_vertex>
+        vec4 wp0 = instanceMatrix * vec4(0.,0.,0.,1.);
+        transformed.x += sin(uTime*1.8 + wp0.x*0.35 + wp0.z*0.25) * 0.16 * uWind * position.y;
+        transformed.z += cos(uTime*1.3 + wp0.z*0.3) * 0.09 * uWind * position.y;`);
+    };
+    this.inst(new THREE.ConeGeometry(0.07, 0.7, 3).translate(0, 0.3, 0), grassMat, grass, false);
 
     // 추락 잔해 금속 조각
     const debris = [];
@@ -282,10 +327,55 @@ export class World {
     this.inst(new THREE.BoxGeometry(1, 1, 1), std('#a9a4a0', { metalness: 0.5, roughness: 0.5 }), debris);
   }
 
+  hullTexture() {
+    const cv = document.createElement('canvas'); cv.width = 512; cv.height = 256;
+    const x = cv.getContext('2d');
+    x.fillStyle = '#d9d4cc'; x.fillRect(0, 0, 512, 256);
+    for (let i = 0; i < 900; i++) { x.fillStyle = `rgba(0,0,0,${Math.random() * 0.05})`; x.fillRect(Math.random() * 512, Math.random() * 256, 2 + Math.random() * 6, 1 + Math.random() * 3); }
+    x.strokeStyle = 'rgba(40,36,48,0.45)'; x.lineWidth = 1;
+    for (let u = 0; u < 512; u += 64) { x.beginPath(); x.moveTo(u, 0); x.lineTo(u, 256); x.stroke(); }
+    for (let v = 0; v < 256; v += 42) { x.beginPath(); x.moveTo(0, v); x.lineTo(512, v); x.stroke(); }
+    x.fillStyle = 'rgba(40,36,48,0.5)';
+    for (let u = 4; u < 512; u += 16) for (let v = 4; v < 256; v += 42) x.fillRect(u, v, 1.5, 1.5);
+    x.fillStyle = '#e8742a'; x.fillRect(0, 150, 512, 10);
+    x.save(); x.translate(300, 128); x.rotate(Math.PI / 2); x.fillStyle = 'rgba(30,28,36,0.85)'; x.font = 'bold 34px sans-serif'; x.textAlign = 'center'; x.fillText('ARCADIA · 7', 0, 12); x.restore();
+    for (let i = 0; i < 6; i++) { // 추락 그을음
+      const gx = Math.random() * 512, gy = Math.random() * 256, gr = x.createRadialGradient(gx, gy, 0, gx, gy, 40 + Math.random() * 50);
+      gr.addColorStop(0, 'rgba(20,14,12,0.55)'); gr.addColorStop(1, 'rgba(20,14,12,0)'); x.fillStyle = gr; x.fillRect(0, 0, 512, 256);
+    }
+    const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  }
+
+  // 빛나는 식물·결정의 빛 번짐을 점 하나로 그린다 (블룸 후처리 대신, 그리기 1번)
+  buildGlowField() {
+    const n = this.glowPts.length, pos = new Float32Array(n * 3), col = new Float32Array(n * 3), size = new Float32Array(n), ph = new Float32Array(n), c = new THREE.Color();
+    this.glowPts.forEach(([x, y, z, color, sz], i) => {
+      pos.set([x, y, z], i * 3); c.set(color); col.set([c.r, c.g, c.b], i * 3); size[i] = sz; ph[i] = Math.random() * 6.283;
+    });
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('gcolor', new THREE.BufferAttribute(col, 3));
+    geo.setAttribute('size', new THREE.BufferAttribute(size, 1)); geo.setAttribute('phase', new THREE.BufferAttribute(ph, 1));
+    this.glowMat = new THREE.ShaderMaterial({
+      uniforms: { uTex: { value: glowTexture() }, uScale: { value: 400 }, uNight: { value: 0 }, uFogD: { value: 0.004 }, uTime: { value: 0 } },
+      vertexShader: `attribute float size, phase; attribute vec3 gcolor; uniform float uScale, uNight, uFogD, uTime; varying vec3 vC; varying float vA;
+        void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.); float d = -mv.z;
+          gl_PointSize = min(140., size * uScale / max(d, 1.) * (0.85 + 0.15 * sin(uTime * 1.7 + phase)));
+          gl_Position = projectionMatrix * mv; vC = gcolor; vA = (0.12 + 0.88 * uNight) * exp(-uFogD * uFogD * d * d * 0.7); }`,
+      fragmentShader: `uniform sampler2D uTex; varying vec3 vC; varying float vA;
+        void main(){ float a = texture2D(uTex, gl_PointCoord).a * vA; gl_FragColor = vec4(vC * a, a);
+          #include <colorspace_fragment>
+        }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const pts = new THREE.Points(geo, this.glowMat); pts.frustumCulled = false;
+    this.scene.add(pts);
+  }
+
   // ───────── 우주선 ─────────
   buildShip() {
     const g = new THREE.Group(); this.scene.add(g); this.ship = g;
-    const hullM = std('#d9d4cc', { roughness: 0.55, metalness: 0.35 }), darkM = std('#33343d', { roughness: 0.7 }),
+    const hullM = std('#d9d4cc', { roughness: 0.55, metalness: 0.35 }), bodyM = std('#ffffff', { map: this.hullTexture(), roughness: 0.5, metalness: 0.35 }), darkM = std('#33343d', { roughness: 0.7 }),
       orM = std('#e8742a', { roughness: 0.6 }), blackM = std('#16161b');
     const box = (x0, x1, y0, y1, z0, z1, m = hullM, col = true) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), m);
@@ -300,7 +390,7 @@ export class World {
     box(-4.3, -3.9, 0, 3.3, -3.3, 3.3);
     box(3.9, 4.3, 0, 1.3, -3.3, 3.3); box(3.9, 4.3, 2.5, 3.3, -3.3, 3.3, hullM, false);
     box(3.9, 4.3, 1.3, 2.5, -3.3, -2.2, hullM, false); box(3.9, 4.3, 1.3, 2.5, 2.2, 3.3, hullM, false);
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 4.4), new THREE.MeshStandardMaterial({ color: '#9fd8ff', transparent: true, opacity: 0.25, roughness: 0.05 }));
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 4.4), mat({ color: '#9fd8ff', transparent: true, opacity: 0.25, roughness: 0.05 }));
     glass.position.set(4.1, 1.9, 0); g.add(glass);
     box(-4.3, 4.3, 0, 3.3, -3.3, -2.9);
     box(-4.3, -1.2, 0, 3.3, 2.9, 3.3); box(1.2, 4.3, 0, 3.3, 2.9, 3.3); box(-1.2, 1.2, 2.3, 3.3, 2.9, 3.3, hullM, false);
@@ -310,13 +400,17 @@ export class World {
     nose.rotation.z = -Math.PI / 2; nose.position.set(6.3, 1.6, 0); nose.castShadow = true; g.add(nose);
     this.addBox(4.3, 7.5, -2.4, 2.4, 3);
     // 동체
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 23.2, 18), hullM);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 23.2, 18), bodyM);
     body.rotation.z = Math.PI / 2; body.position.set(-15.9, 2.0, 0); body.castShadow = body.receiveShadow = true; g.add(body);
     for (const x of [-7, -18, -25]) {
       const st = new THREE.Mesh(new THREE.CylinderGeometry(3.25, 3.25, 0.7, 18), orM);
       st.rotation.z = Math.PI / 2; st.position.set(x, 2.0, 0); g.add(st);
     }
     this.addBox(-27.5, -4.3, -3.2, 3.2, 5.2);
+    this.winMat = glow('#223', '#bfe8ff', 0.3);
+    const wins = new THREE.InstancedMesh(new THREE.BoxGeometry(0.6, 0.28, 0.05), this.winMat, 26), o = new THREE.Object3D();
+    for (let i = 0; i < 26; i++) { const side = i % 2 ? 1 : -1; o.position.set(-6 - Math.floor(i / 2) * 1.5, 3.1, side * 2.62); o.rotation.set(side * 0.62, 0, 0); o.updateMatrix(); wins.setMatrixAt(i, o.matrix); }
+    g.add(wins);
     // 엔진
     const eng = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.9, 3, 14), darkM);
     eng.rotation.z = Math.PI / 2; eng.position.set(-29, 2, 0); eng.castShadow = true; g.add(eng);
@@ -342,7 +436,8 @@ export class World {
     this.alarm = new THREE.PointLight('#ff2a2a', 6, 12, 1.4); this.alarm.position.set(0, 2.7, 0); g.add(this.alarm);
     this.cabin = new THREE.PointLight('#dff4ff', 0, 12, 1.4); this.cabin.position.set(0, 2.7, 0.5); g.add(this.cabin);
     this.flood = new THREE.SpotLight('#fff1d6', 0, 45, 0.9, 0.6, 1.2);
-    this.flood.position.set(1, 5.5, 3.5); this.flood.target.position.set(4, 0, 16); g.add(this.flood); g.add(this.flood.target);
+    this.flood.position.set(1, 5.5, 3.5); this.flood.target.position.set(4, 0, 16); if (Q.lights) { g.add(this.flood); g.add(this.flood.target); }
+    this.floodGlow = glowSprite('#fff1d6', 3, 0); this.floodGlow.position.set(1, 5.3, 3.4); g.add(this.floodGlow);
     // 연기
     this.smoke = [];
     const cv = document.createElement('canvas'); cv.width = cv.height = 64;
@@ -389,9 +484,11 @@ export class World {
     }
     // 방어등 빛 / 핵 빛 / 조명탄 풀
     this.beaconLight = new THREE.PointLight('#b06bff', 0, 34, 1.1);
-    this.beaconLight.position.set(3, 4.5, 15); this.scene.add(this.beaconLight);
+    this.beaconLight.position.set(3, 4.5, 15); if (Q.lights) this.scene.add(this.beaconLight);
+    this.beaconGlow = glowSprite('#b06bff', 9, 0); this.beaconGlow.position.set(3, 4.3, 15); this.scene.add(this.beaconGlow);
     this.coreLight = new THREE.PointLight('#c14dff', 8, 18, 1.4);
-    this.scene.add(this.coreLight);
+    if (Q.lights) this.scene.add(this.coreLight);
+    this.coreGlow = glowSprite('#c14dff', 5, 0.8); this.meshes.core1.add(this.coreGlow); this.coreGlow.position.y = 0.4;
     const ringG = new THREE.RingGeometry(SAFE_R - 0.4, SAFE_R, 96); ringG.rotateX(-Math.PI / 2);
     this.safeRing = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ color: '#b06bff', transparent: true, opacity: 0, depthWrite: false, fog: false }));
     this.safeRing.position.y = 0.15; this.scene.add(this.safeRing);
@@ -403,7 +500,8 @@ export class World {
     this.capStripe = glow('#331', '#ff9a3d', 2); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.82, 0.15, 12), this.capStripe); st.position.y = 0.5; cap.add(st);
     const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 120, 8, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: '#ff9a3d', transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
     cap.add(cb); this.capBeam = cb;
-    this.capLight = new THREE.PointLight('#ff9a3d', 0, 25, 1.2); this.scene.add(this.capLight);
+    this.capLight = new THREE.PointLight('#ff9a3d', 0, 25, 1.2); if (Q.lights) this.scene.add(this.capLight);
+    const capG = glowSprite('#ff9a3d', 5, 0.9); capG.position.y = 1; cap.add(capG);
     // 휴대용 UV 랜턴 (최대 3개)
     this.lanternPool = [];
     for (let i = 0; i < 3; i++) {
@@ -412,7 +510,8 @@ export class World {
       const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), glow('#e6ccff', '#b06bff', 3)); head.position.y = 1.5; lg.add(head);
       const rg = new THREE.RingGeometry(8.6, 9, 64); rg.rotateX(-Math.PI / 2);
       const ring = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ color: '#b06bff', transparent: true, opacity: 0.35, depthWrite: false, fog: false })); ring.position.y = 0.2; lg.add(ring);
-      const light = new THREE.PointLight('#b06bff', 0, 16, 1.2); this.scene.add(light);
+      const light = new THREE.PointLight('#b06bff', 0, 16, 1.2); if (Q.lights) this.scene.add(light);
+      const lgG = glowSprite('#b06bff', 4, 0.9); lgG.position.y = 1.5; lg.add(lgG);
       this.lanternPool.push({ g: lg, light });
     }
   }
@@ -631,15 +730,22 @@ export class World {
       this.hemi.intensity *= 1 - storm * 0.3; this.sun.intensity *= 1 - storm * 0.6;
     }
     this.skyGroup.position.copy(cam);
+    this.skyU.uTime.value = this.clock;
+    this.wind.uTime.value = this.clock; this.wind.uWind.value = 1 + storm * 3;
+    this.waterTex.offset.set(this.clock * 0.012, this.clock * 0.007);
+    if (this.glowMat) {
+      this.glowMat.uniforms.uNight.value = night; this.glowMat.uniforms.uTime.value = this.clock;
+      this.glowMat.uniforms.uFogD.value = this.scene.fog.density; this.glowMat.uniforms.uScale.value = this.viewScale || 400;
+    }
 
     // 발광체: 밤엔 더 밝게
     this.bulbMat.emissiveIntensity = 0.4 + night * 1.6;
-    this.capMat.emissiveIntensity = 0.3 + night * 1.4;
+    this.capMat.emissiveIntensity = 0.25 + night * 0.75;
     this.podMat.emissiveIntensity = 0.3 + night * 1.2 + (G?.flags.nestAwake ? Math.sin(this.clock * 6) * 0.5 + 0.5 : 0);
     const hot = !isNight(t) && storm < 0.5;
     this.crystalMat.emissive.set(hot ? '#ff6a1a' : '#2fc8ff'); this.crystalMat.emissiveIntensity = hot ? 0.35 + Math.sin(this.clock * 2) * 0.1 : 0.6 + night;
     this.M.crystal.emissive.set(hot ? '#ff5a1a' : '#3fd0ff');
-    this.M.moss.emissiveIntensity = 0.8 + night * 2.5;
+    this.M.moss.emissiveIntensity = 0.6 + night * (Q.lambert ? 0.9 : 2.5);
     this.M.moon.emissiveIntensity = isNight(t) ? 2.2 + Math.sin(this.clock * 2) * 0.4 : 0.1;
     this.sporeMat.opacity = Math.max(0.1 + night * 0.6, storm * 0.85);
     this.sporeMat.size = 0.12 + storm * 0.3;
@@ -672,11 +778,14 @@ export class World {
     this.alarm.intensity = power ? 0 : (Math.sin(this.clock * 5) > 0 ? 7 : 0.6);
     this.cabin.intensity = power ? 5 : 0;
     this.flood.intensity = power ? 60 * (0.3 + night) : 0;
+    this.floodGlow.material.opacity = power ? 0.4 + night * 0.6 : 0;
+    this.winMat.emissiveIntensity = power ? 1.6 : (Math.sin(this.clock * 7) > 0.85 ? 0.6 : 0.08);
     this.consoleScreen.material.emissiveIntensity = power ? 1.2 : 0.15 + (Math.sin(this.clock * 13) > 0.7 ? 0.4 : 0);
     this.engineGlow.emissiveIntensity = G.launch ? 1.5 + Math.sin(this.clock * 20) * 0.5 : 0;
     const be = G.beaconE ?? 1, beacon = G.flags.beaconPlaced && !G.launch && be > 0;
     const flick = be < 0.25 && Math.random() < 0.15 ? 0.2 : 1;
     this.beaconLight.intensity = beacon ? 30 * (0.35 + 0.65 * be) * flick : 0;
+    this.beaconGlow.material.opacity = beacon ? (0.35 + 0.65 * be) * flick : 0;
     this.safeRing.material.opacity = beacon ? 0.25 + night * 0.3 : 0;
     const core = this.meshes.core1;
     this.coreLight.position.copy(core.position).y += 1;
@@ -684,7 +793,7 @@ export class World {
 
     for (const e of this.ents) {
       const m = this.meshes[e.id];
-      m.visible = !G.taken[e.id] && !(pending[e.id] > performance.now());
+      m.visible = !G.taken[e.id] && !(pending[e.id] > performance.now()) && Math.abs(m.position.x - cam.x) < Q.cull && Math.abs(m.position.z - cam.z) < Q.cull;
       const u = m.userData;
       if (u.flower) u.flower.scale.setScalar(isNight(t) ? 1 : 0.35);
       if (u.spin) u.spin.rotation.z += dt;

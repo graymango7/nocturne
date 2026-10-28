@@ -8,21 +8,24 @@ import { Actors } from './actors.js';
 import { Player, Input } from './player.js';
 import { UI } from './ui.js';
 import { Sfx } from './audio.js';
+import { Q, TIER, TIER_NAME, QUALITY_PREF, saveQualityPref } from './quality.js';
 import { IS_TOUCH, IS_IOS, IS_STANDALONE, CAN_FULLSCREEN, setupTouch, goFullscreen, toggleFullscreen, isFullscreen } from './touch.js';
 
 const $ = s => document.querySelector(s);
 
 // ───────── 렌더러/씬 ─────────
 const canvas = $('#c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: !IS_TOUCH, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, IS_TOUCH ? 1.25 : 1.5));
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: Q.aa, powerPreference: 'high-performance' });
+// 해상도 배율: 프레임이 떨어지면 자동으로 낮추고, 여유 있으면 다시 올린다
+let dpr = Math.min(devicePixelRatio, Q.dprMax);
+renderer.setPixelRatio(dpr);
 renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = !IS_TOUCH; // 폰에서는 그림자를 꺼서 프레임 확보
+renderer.shadowMap.enabled = Q.shadows; // 폰(낮음·보통)에서는 그림자 맵 대신 발밑 그림자
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 1600);
+const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, Q.far);
 scene.add(camera);
 // 폰이 세로로 인식되면(회전 잠금·아이폰) 게임을 90° 돌려 항상 가로로 플레이
 function fitView() {
@@ -31,6 +34,7 @@ function fitView() {
   const W = force ? innerHeight : innerWidth, H = force ? innerWidth : innerHeight;
   document.body.style.width = force ? W + 'px' : ''; document.body.style.height = force ? H + 'px' : '';
   renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix();
+  world.viewScale = H * dpr / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
 }
 addEventListener('resize', () => fitView());
 addEventListener('orientationchange', () => setTimeout(fitView, 200));
@@ -56,7 +60,7 @@ const game = {
   inviteLink() { return this.room ? location.origin + location.pathname + '?room=' + this.room : ''; },
 };
 const ui = new UI(game);
-window.__nocturne = { game, ui, world, actors }; // 디버그용
+window.__nocturne = { game, ui, world, actors, renderer }; // 디버그용
 player.onStep = sp => audio.step(sp);
 
 // ───────── 메시지 처리 (호스트 로컬 + 네트워크 공통) ─────────
@@ -97,20 +101,20 @@ function onMsg(m) {
 
 function onFx(m) {
   switch (m.k) {
-    case 'obj': audio.objective(); break;
-    case 'mission': audio.mission(); break;
-    case 'pick': if (m.pid === game.myId) audio.pick(); break;
+    case 'obj': audio.objective(); buzz(20); break;
+    case 'mission': audio.mission(); buzz([30, 60, 30]); break;
+    case 'pick': if (m.pid === game.myId) { audio.pick(); buzz(12); } break;
     case 'craft': audio.craft(); break;
     case 'sync': audio.lever(); break;
     case 'power': audio.power(); break;
     case 'beacon': audio.power(); break;
     case 'flare': audio.flare(); break;
-    case 'hit': audio.hit(); break;
-    case 'launch': audio.alarm(); setTimeout(() => audio.alarm(), 700); break;
+    case 'hit': audio.hit(); if (m.pid === game.myId) { player.shake = 1; buzz([60, 40, 90]); } break;
+    case 'launch': audio.alarm(); setTimeout(() => audio.alarm(), 700); player.shake = 0.8; buzz(200); break;
     case 'sleep': fadeBlink(2200); break;
     case 'scream': {
       const d = Math.hypot(m.x - player.pos.x, m.z - player.pos.z);
-      if (game.mode === 'play' && d < 140) { audio.scream(Math.max(0.15, 1 - d / 140)); if (d < 70) ui.banner('울보의 비명!', '주변 개체가 몰려온다 — 숨거나 뛰어요'); }
+      if (game.mode === 'play' && d < 140) { audio.scream(Math.max(0.15, 1 - d / 140)); if (d < 70) { ui.banner('울보의 비명!', '주변 개체가 몰려온다 — 숨거나 뛰어요'); player.shake = 0.5; buzz(120); } }
       break;
     }
     case 'whimper': audio.whimper(); break;
@@ -161,7 +165,7 @@ function applyState(G) {
     endShown = true;
     fadeBlink(900);
     setTimeout(() => {
-      game.mode = 'ended'; cutT = 0; input.unlock(); ui.togglePhone(false); ui.closeTuner();
+      game.mode = 'ended'; cutT = 0; input.unlock(); ui.togglePhone(false); ui.closeTuner(); cine(12);
       $('#hud').classList.add('hidden'); $('#danger').style.opacity = 0; document.body.classList.remove('playing');
       for (const a of Object.values(actors.players)) a.visible = false;
       if (player.body) player.body.visible = false;
@@ -191,6 +195,7 @@ function enterGame() {
   if (!G.flags.phone) {
     player.spawn(-1.2 + idx * 0.8, 0.6, Math.PI);
     player.startWake();
+    cine(9);
     $('#lids').style.display = 'block';
     audio.alarm(); setTimeout(() => audio.alarm(), 1200); setTimeout(() => audio.alarm(), 2400);
   } else {
@@ -423,9 +428,30 @@ function menuFrame(dt) {
   world.update(dt, 0.635, camera.position, 0, {});
 }
 
+let fpsN = 0, fpsT = 0, fps = 60, dprCool = 0, slowSec = 0;
+function adaptResolution(rawDt) {
+  fpsN++; fpsT += rawDt; dprCool -= rawDt;
+  if (fpsT < 1) return;
+  fps = fpsN / fpsT; fpsN = 0; fpsT = 0;
+  if (game.mode !== 'play' || dprCool > 0) return;
+  let next = dpr;
+  if (fps < 40 && dpr > Q.dprMin) next = Math.max(Q.dprMin, dpr - 0.1);
+  else if (fps > 57 && dpr < Math.min(devicePixelRatio, Q.dprMax)) next = Math.min(devicePixelRatio, Q.dprMax, dpr + 0.05);
+  if (next !== dpr) { dpr = next; renderer.setPixelRatio(dpr); fitView(); dprCool = 2.5; }
+  // 해상도를 최저로 낮춰도 버벅이면 품질 단계를 낮추라고 한 번 안내
+  slowSec = dpr <= Q.dprMin && fps < 32 ? slowSec + 1 : 0;
+  if (slowSec >= 6 && TIER !== 'low' && !adaptResolution.told) {
+    adaptResolution.told = true;
+    ui.toast('SYS', `화면이 버벅여요. 일시정지(${IS_TOUCH ? '☰' : 'Esc'}) → 그래픽 품질을 한 단계 낮추면 부드러워져요.`);
+  }
+}
+function buzz(p) { if (IS_TOUCH && settings.vibe) try { navigator.vibrate?.(p); } catch {} }
+function cine(sec) { document.body.classList.add('cine'); clearTimeout(cine.t); cine.t = setTimeout(() => document.body.classList.remove('cine'), sec * 1000); }
+
 function frame() {
   requestAnimationFrame(frame);
-  const now = performance.now(), dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const now = performance.now(), raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now;
+  adaptResolution(raw);
   step(dt);
 }
 window.__nocturne.step = step;
@@ -458,7 +484,19 @@ input.onLockChange = locked => {
   if (ui.tuner) ui.closeTuner();
   if (game.mode === 'play' && !ui.phoneOpen && !chatOpen && input.everLocked) showPause();
 };
+const settings = { vibe: true, btn: 1 };
+try { Object.assign(settings, JSON.parse(localStorage.getItem('nocturne-settings') || '{}')); } catch {}
+const saveSettings = () => { try { localStorage.setItem('nocturne-settings', JSON.stringify(settings)); } catch {} };
+const applyBtnSize = () => document.documentElement.style.setProperty('--tb', settings.btn);
+applyBtnSize();
+$('#qSel').value = QUALITY_PREF;
+$('#qSel').addEventListener('change', e => { saveQualityPref(e.target.value); $('#qNote').textContent = '새로고침하면 적용돼요 (진행 상황은 자동 저장)'; });
+$('#bSize').value = String(settings.btn);
+$('#bSize').addEventListener('change', e => { settings.btn = +e.target.value; applyBtnSize(); saveSettings(); });
+$('#vibe').checked = settings.vibe;
+$('#vibe').addEventListener('change', e => { settings.vibe = e.target.checked; saveSettings(); if (settings.vibe) buzz(30); });
 function showPause() {
+  $('#qInfo').textContent = `현재 그래픽: ${TIER_NAME[TIER]}${QUALITY_PREF === 'auto' ? ' (자동)' : ''} · 해상도 ${dpr.toFixed(2)}x · ${Math.round(fps)} FPS`;
   const link = game.inviteLink();
   $('#inviteBox').innerHTML = link ? `<div class="hint">초대 링크 — 친구가 열면 바로 합류해요 (최대 4명) · 방 코드 <b>${game.room}</b></div><div class="link"><input readonly value="${link}"><button id="copyLink2">복사</button></div>` : '<div class="hint">혼자 플레이 중 · 저장은 30초마다 자동</div>';
   $('#copyLink2')?.addEventListener('click', () => copy(link, '#copyLink2'));

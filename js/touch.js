@@ -35,6 +35,7 @@ export function setupTouch(input, hooks) {
         if (d > R) { dx *= R / d; dy *= R / d; }
         knob.style.transform = `translate(${dx}px, ${dy}px)`;
         input.axis.x = dx / R; input.axis.y = -dy / R;
+        stick.classList.toggle('run', Math.hypot(dx, dy) / R > 0.93 && -dy / R > 0.6);
       } else if (t.identifier === lookId) {
         input.look((p.x - lx) * 2.2, (p.y - ly) * 2.2);
         lx = p.x; ly = p.y;
@@ -46,7 +47,7 @@ export function setupTouch(input, hooks) {
     for (const t of e.changedTouches) {
       if (t.identifier === stickId) {
         stickId = null; input.axis.x = input.axis.y = 0;
-        knob.style.transform = ''; stick.classList.remove('on'); stick.style.left = stick.style.top = '';
+        knob.style.transform = ''; stick.classList.remove('on', 'run'); stick.style.left = stick.style.top = '';
       }
       if (t.identifier === lookId) lookId = null;
     }

@@ -22,6 +22,8 @@ export class UI {
     this.compass = $('#compass'); this.cctx = this.compass.getContext('2d');
     this.toasts = $('#toasts');
     $('#phHome').innerHTML = APPS.map(a => `<button data-app="${a.id}"><span>${a.icon}</span>${a.name}</button>`).join('');
+    // 모바일: 미션 카드를 누르면 전체 목표 펼치기
+    $('#mission').addEventListener('click', () => $('#mission').classList.toggle('expanded'));
     $('#phHome').addEventListener('click', e => { const b = e.target.closest('button'); if (b) this.openApp(b.dataset.app); });
     $('#phBack').addEventListener('click', () => this.openApp('home'));
     $('#phClose').addEventListener('click', () => this.togglePhone(false));
@@ -35,6 +37,7 @@ export class UI {
     if (m) {
       $('#mTitle').textContent = `${G.mission + 1}. ${m.title}`;
       $('#mObjs').innerHTML = this.objList(G, m, true);
+      $('#mObjs li.act')?.classList.add('first');
     } else {
       $('#mTitle').textContent = '탈출 성공'; $('#mObjs').innerHTML = '';
     }
@@ -162,7 +165,27 @@ export class UI {
     c.fillStyle = '#ffd34d'; c.fillRect(W / 2 - 1, 20, 2, 26);
   }
 
+  // 모바일 행동 버튼: 지금 바라보는 대상에 맞춰 아이콘·동사·진행 링이 바뀐다
+  touchAction(text, prog, dis) {
+    const b = this.useBtn ||= document.querySelector('#touch .t-use');
+    if (!b || !this.g.input.touch) return;
+    const set = (cls, ic, vb, tg, p) => {
+      b.className = 't-use ' + cls + (b.classList.contains('on') ? ' on' : ''); b.querySelector('.ic').textContent = ic; b.querySelector('.vb').textContent = vb;
+      b.querySelector('.tg').textContent = tg; b.querySelector('.tg').style.display = tg ? 'block' : 'none'; b.style.setProperty('--p', p);
+    };
+    if (!text || this.g.player.down) return set('idle', '✋', '사용', '', 0);
+    const plain = text.replace(/<kbd>E<\/kbd>\s*/, '').replace(/<[^>]+>/g, '');
+    const [head, ...rest] = plain.split(' — ');
+    if (dis) return set('dis', '🚫', '불가', plain, 0);
+    const hold = head === '계속 누르기' || head === '길게';
+    const verb = hold ? '꾹 누르기' : head;
+    const ICONS = [['채집', '🌿'], ['채굴', '⛏️'], ['물 뜨기', '💧'], ['줍기', '🖐️'], ['들기', '💪'], ['재생', '📼'], ['튜닝', '📡'], ['사용', '🔧'], ['조사', '🔍'], ['당기기', '⬇️'], ['가동', '⚙️'], ['설치', '📍'], ['휴식', '🛏️'], ['꾹', '👇']];
+    set('ready', ICONS.find(([k]) => verb.includes(k))?.[1] || '✋', verb, rest.join(' — '), Math.round(prog * 100));
+  }
+
   setPrompt(text, prog = 0, disabled = false) {
+    this.touchAction(text, prog, disabled);
+    document.body.classList.toggle('down-msg', !!(text && this.g.player.down));
     const el = $('#prompt');
     if (!text) { el.style.display = 'none'; return; }
     el.style.display = 'flex'; el.className = disabled ? 'dis' : '';

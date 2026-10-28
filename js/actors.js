@@ -1,6 +1,7 @@
 // 다른 대원 아바타, 외계 생물, 조명탄 렌더링 (호스트 스냅샷을 보간)
 import * as THREE from 'three';
 import { height } from './terrain.js';
+import { Q, mat, blobShadow, glowSprite } from './quality.js';
 
 const lerpAng = (a, b, t) => { let d = b - a; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return a + d * t; };
 
@@ -18,13 +19,19 @@ function nameSprite(text, color) {
 
 export function makeAvatar(color, name) {
   const g = new THREE.Group();
-  const suit = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
-  const white = new THREE.MeshStandardMaterial({ color: '#e8e8ec', roughness: 0.5 });
-  const dark = new THREE.MeshStandardMaterial({ color: '#202028', roughness: 0.3, metalness: 0.4 });
+  const suit = mat({ color, roughness: 0.7 });
+  const white = mat({ color: '#e8e8ec', roughness: 0.5 });
+  const dark = mat({ color: '#202028', roughness: 0.3, metalness: 0.4 });
   const add = (geo, mat, x, y, z) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; g.add(m); return m; };
   add(new THREE.CapsuleGeometry(0.3, 0.55, 4, 8), suit, 0, 1.05, 0);
   add(new THREE.SphereGeometry(0.26, 16, 12), white, 0, 1.68, 0);
-  add(new THREE.BoxGeometry(0.32, 0.15, 0.1), dark, 0, 1.7, -0.2);
+  add(new THREE.BoxGeometry(0.32, 0.15, 0.1), mat({ color: '#141420', emissive: '#ff9a3d', emissiveIntensity: 0.22, roughness: 0.15, metalness: 0.7 }), 0, 1.7, -0.2);
+  const teamLight = mat({ color, emissive: color, emissiveIntensity: 1.6 });
+  add(new THREE.BoxGeometry(0.44, 0.06, 0.02), teamLight, 0, 1.32, 0.385);
+  add(new THREE.SphereGeometry(0.045, 8, 6), mat({ color: '#fff', emissive: '#fff4dc', emissiveIntensity: 2 }), 0.2, 1.78, -0.12);
+  const beamCone = new THREE.Mesh(new THREE.ConeGeometry(1.6, 9, 14, 1, true).translate(0, -4.5, 0), new THREE.MeshBasicMaterial({ color: '#fff4dc', transparent: true, opacity: 0.07, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+  beamCone.rotation.x = Math.PI / 2; beamCone.position.set(0.2, 1.45, -0.3); beamCone.visible = false; g.add(beamCone);
+  if (!Q.shadows) g.add(blobShadow(1.3));
   add(new THREE.BoxGeometry(0.42, 0.5, 0.22), white, 0, 1.15, 0.27);
   const limb = new THREE.CapsuleGeometry(0.1, 0.5, 4, 6); limb.translate(0, -0.3, 0);
   const mk = (x, y, mat) => { const p = new THREE.Group(); p.position.set(x, y, 0); const m = new THREE.Mesh(limb, mat); m.castShadow = true; p.add(m); g.add(p); return p; };
@@ -32,29 +39,31 @@ export function makeAvatar(color, name) {
   const arms = [mk(-0.4, 1.38, suit), mk(0.4, 1.38, suit)];
   const label = nameSprite(name, color); label.position.y = 2.25; g.add(label);
   const carry = new THREE.Group(); carry.position.set(0, 1.2, -0.5); g.add(carry);
-  g.userData = { legs, arms, label, carry, phase: 0 };
+  g.userData = { legs, arms, label, carry, phase: 0, beamCone };
   return g;
 }
 
 export function carryMesh(kind) {
   const g = new THREE.Group();
   if (kind === 'antenna') {
-    const m = new THREE.Mesh(new THREE.SphereGeometry(0.8, 14, 8, 0, Math.PI * 2, 0, 1.0), new THREE.MeshStandardMaterial({ color: '#cfd3d8', metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide }));
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.8, 14, 8, 0, Math.PI * 2, 0, 1.0), mat({ color: '#cfd3d8', metalness: 0.6, roughness: 0.35, side: THREE.DoubleSide }));
     m.rotation.x = -1.2; g.add(m);
   } else if (kind === 'core') {
-    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 1), new THREE.MeshStandardMaterial({ color: '#c14dff', emissive: '#b230ff', emissiveIntensity: 2.5 })));
+    g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 1), mat({ color: '#c14dff', emissive: '#b230ff', emissiveIntensity: 2.5 })));
   }
   return g;
 }
 
 function makeAlien() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: '#0e0a14', roughness: 0.9, metalness: 0 });
-  const stripe = new THREE.MeshStandardMaterial({ color: '#2a0f3a', emissive: '#a33cff', emissiveIntensity: 1.2 });
-  const eye = new THREE.MeshStandardMaterial({ color: '#300', emissive: '#ff2030', emissiveIntensity: 3 });
+  const skin = mat({ color: '#0e0a14', roughness: 0.9, metalness: 0 });
+  const stripe = mat({ color: '#2a0f3a', emissive: '#a33cff', emissiveIntensity: 1.2 });
+  const eye = mat({ color: '#300', emissive: '#ff2030', emissiveIntensity: 3 });
   const body = new THREE.Group(); g.add(body);
   const torso = new THREE.Mesh(new THREE.SphereGeometry(0.6, 12, 10), skin); torso.scale.set(0.85, 0.7, 1.9); torso.position.y = 1.7; torso.castShadow = true; body.add(torso);
   for (let i = 0; i < 4; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.35), stripe); s.position.set(0, 2.15, -0.7 + i * 0.45); body.add(s); }
+  for (let i = 0; i < 8; i++) { const d = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 4), stripe); d.position.set((i % 2 ? 1 : -1) * 0.45, 1.75 + (i % 3) * 0.08, -0.8 + Math.floor(i / 2) * 0.5); body.add(d); }
+  if (!Q.shadows) g.add(blobShadow(2.6));
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.2, 1.1, 6), skin); neck.position.set(0, 2.1, -1.2); neck.rotation.x = -0.9; body.add(neck);
   const head = new THREE.Group(); head.position.set(0, 2.4, -1.6); body.add(head);
   const skull = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.1, 6), skin); skull.rotation.x = -Math.PI / 2; skull.position.z = -0.3; skull.castShadow = true; head.add(skull);
@@ -73,9 +82,9 @@ function makeAlien() {
 // "울보": 창백하고 키 큰 네발 개체. 목의 울음주머니가 부풀며 비명을 지른다
 function makeScreamer() {
   const g = new THREE.Group();
-  const skin = new THREE.MeshStandardMaterial({ color: '#b8ad9c', roughness: 0.85, emissive: '#3a352c', emissiveIntensity: 0.8 });
-  const eye = new THREE.MeshStandardMaterial({ color: '#330', emissive: '#e8ff3a', emissiveIntensity: 3 });
-  const sacMat = new THREE.MeshStandardMaterial({ color: '#4a5a10', emissive: '#c8ff4d', emissiveIntensity: 1.2, transparent: true, opacity: 0.85 });
+  const skin = mat({ color: '#b8ad9c', roughness: 0.85, emissive: '#3a352c', emissiveIntensity: 0.8 });
+  const eye = mat({ color: '#330', emissive: '#e8ff3a', emissiveIntensity: 3 });
+  const sacMat = mat({ color: '#4a5a10', emissive: '#c8ff4d', emissiveIntensity: 1.2, transparent: true, opacity: 0.85 });
   const body = new THREE.Group(); g.add(body);
   const torso = new THREE.Mesh(new THREE.SphereGeometry(0.45, 12, 10), skin); torso.scale.set(0.8, 0.8, 1.3); torso.position.y = 2.5; torso.castShadow = true; body.add(torso);
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 1.5, 6), skin); neck.position.set(0, 3.3, -0.35); neck.rotation.x = -0.35; body.add(neck);
@@ -90,6 +99,7 @@ function makeScreamer() {
     const l = new THREE.Mesh(legGeo, skin); l.rotation.z = x > 0 ? 0.2 : -0.2; l.castShadow = true; p.add(l);
     legs.push(p);
   }
+  if (!Q.shadows) g.add(blobShadow(2));
   g.userData = { body, legs, head, eye, sac, sacMat, phase: Math.random() * 6, st: 0, screamer: true };
   return g;
 }
@@ -101,12 +111,13 @@ export class Actors {
     this.spots = [];
     for (let i = 0; i < 3; i++) {
       const s = new THREE.SpotLight('#fff4dc', 0, 35, 0.45, 0.5, 1.2);
-      scene.add(s); scene.add(s.target); this.spots.push(s);
+      if (Q.lights) { scene.add(s); scene.add(s.target); }
+      this.spots.push(s);
     }
     this.flareLights = []; this.flareSprites = [];
     const fm = new THREE.SpriteMaterial({ color: '#d6a3ff', transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
     for (let i = 0; i < 3; i++) {
-      const l = new THREE.PointLight('#b066ff', 0, 30, 1.2); scene.add(l); this.flareLights.push(l);
+      const l = new THREE.PointLight('#b066ff', 0, 30, 1.2); if (Q.lights) scene.add(l); this.flareLights.push(l);
       const s = new THREE.Sprite(fm); s.visible = false; s.scale.setScalar(1.6); scene.add(s); this.flareSprites.push(s);
     }
     this.alienNear = 1e9; this.chasing = 0;
@@ -159,6 +170,8 @@ export class Actors {
       a.rotation.x = u.down ? -Math.PI / 2 * 0.95 : 0;
       if (u.down) a.position.y = s[1] + 0.3;
       a.scale.y = s[6] ? 0.7 : 1;
+      u.beamCone.visible = !!s[5] && !u.down;
+      if (u.beamCone.visible) u.beamCone.rotation.x = Math.PI / 2 + s[4];
       if (s[5] && !u.down && si < this.spots.length) {
         const sp = this.spots[si++];
         sp.intensity = 40;
@@ -208,7 +221,7 @@ export class Actors {
       if (!f) { l.intensity = 0; s.visible = false; return; }
       const y = height(f.x, f.z) + 0.6;
       l.position.set(f.x, y + 1, f.z); l.intensity = 40 + Math.random() * 15;
-      s.position.set(f.x, y, f.z); s.visible = true; s.scale.setScalar(1.3 + Math.random() * 0.6);
+      s.position.set(f.x, y, f.z); s.visible = true; s.scale.setScalar((Q.lights ? 1.3 : 6) + Math.random() * 0.6);
     });
   }
 }

@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { height, WATER_Y, inLake } from './terrain.js';
 import { CARRY } from './data.js';
 import { makeAvatar, carryMesh } from './actors.js';
+import { mat } from './quality.js';
 
 export class Input {
   constructor(dom, touch = false) {
@@ -58,7 +59,7 @@ export class Player {
     this.yaw = Math.PI; this.pitch = 0; this.roll = 0;
     this.eye = 1.62; this.stamina = 1; this.fl = false; this.cr = false; this.sp = false;
     this.onGround = true; this.view = 'fp'; this.locks = new Set(); this.down = false;
-    this.wakeT = -1; this.bob = 0; this.reach = 0; this.carry = null; this.phoneUp = false; this.mv = 0;
+    this.wakeT = -1; this.shake = 0; this.bob = 0; this.reach = 0; this.carry = null; this.phoneUp = false; this.mv = 0;
     this.sens = +(localStorage.getItem('nocturne-sens') || 1);
     this.stepAcc = 0; this.onStep = () => {};
     this.flash = new THREE.SpotLight('#fff4dc', 0, 42, 0.5, 0.45, 1.1);
@@ -80,9 +81,9 @@ export class Player {
     this.hAmb = new THREE.HemisphereLight('#ffffff', '#443355', 1.2); this.hScene.add(this.hAmb);
     this.hDir = new THREE.DirectionalLight('#ffffff', 1.2); this.hDir.position.set(0.5, 1, 0.6); this.hScene.add(this.hDir);
     this.hRed = new THREE.PointLight('#ff3030', 0, 3, 1); this.hRed.position.set(0, 0.5, 0); this.hScene.add(this.hRed);
-    const suit = new THREE.MeshStandardMaterial({ color: '#e8742a', roughness: 0.8 });
-    const glove = new THREE.MeshStandardMaterial({ color: '#d8d8dc', roughness: 0.6 });
-    const dark = new THREE.MeshStandardMaterial({ color: '#2a2a30', roughness: 0.5 });
+    const suit = mat({ color: '#e8742a', roughness: 0.8 });
+    const glove = mat({ color: '#d8d8dc', roughness: 0.6 });
+    const dark = mat({ color: '#2a2a30', roughness: 0.5 });
     const mkHand = side => {
       const g = new THREE.Group();
       const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.075, 0.42, 12), suit); sleeve.rotation.x = Math.PI / 2; sleeve.position.z = 0.14; g.add(sleeve);
@@ -95,12 +96,12 @@ export class Player {
     this.rHand = mkHand(1); this.lHand = mkHand(-1);
     const torch = new THREE.Group();
     const tb = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.034, 0.2, 12), dark); tb.rotation.x = Math.PI / 2; torch.add(tb);
-    this.lens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 12), new THREE.MeshStandardMaterial({ color: '#555', emissive: '#fff6cc', emissiveIntensity: 0 }));
+    this.lens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 12), mat({ color: '#555', emissive: '#fff6cc', emissiveIntensity: 0 }));
     this.lens.position.z = -0.101; this.lens.rotation.y = Math.PI; torch.add(this.lens);
     torch.position.set(0, 0.045, -0.2); this.rHand.add(torch); this.torch = torch;
     const phone = new THREE.Group();
     phone.add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.01), dark));
-    this.phoneScr = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.135), new THREE.MeshStandardMaterial({ color: '#000', emissive: '#29e0ff', emissiveIntensity: 1.2 }));
+    this.phoneScr = new THREE.Mesh(new THREE.PlaneGeometry(0.07, 0.135), mat({ color: '#000', emissive: '#29e0ff', emissiveIntensity: 1.2 }));
     this.phoneScr.position.z = 0.006; phone.add(this.phoneScr);
     phone.position.set(0, 0.06, -0.2); phone.rotation.x = -1.1; this.lHand.add(phone); this.phoneMesh = phone;
     this.carryHolder = new THREE.Group(); this.carryHolder.position.set(0, -0.35, -0.75); this.hScene.add(this.carryHolder);
@@ -201,6 +202,12 @@ export class Player {
     } else {
       cam.position.set(this.pos.x, this.pos.y + this.eye + bobY, this.pos.z);
       cam.rotation.set(pitch, this.yaw, roll);
+    }
+    if (this.shake > 0) {
+      const k = this.shake * this.shake * 0.12;
+      cam.position.x += (Math.random() - 0.5) * k; cam.position.y += (Math.random() - 0.5) * k;
+      cam.rotation.z += (Math.random() - 0.5) * k * 0.4;
+      this.shake = Math.max(0, this.shake - dt * 1.6);
     }
     if (this.body) {
       this.body.visible = this.view === 'tp';
