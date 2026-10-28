@@ -335,7 +335,7 @@ export class UI {
   // ───────── 주파수 튜너 ─────────
   openTuner(id) {
     const base = id === 'relayA' ? { f: 2.2, a: 0.6, s: 1 } : { f: 3.4, a: 0.85, s: 2.5 };
-    this.tuner = { id, base, f: 1 + Math.random() * 4, a: 0.2 + Math.random() * 0.3, lock: 0, send: 0, done: 0 };
+    this.tuner = { id, base, f: 1 + Math.random() * 4, a: 0.2 + Math.random() * 0.3, lock: 0, send: 0, done: 0, age: 0 };
     $('#tuner').classList.add('open');
     this.g.player.locks.add('tuner');
   }
@@ -348,7 +348,9 @@ export class UI {
   }
   updateTuner(dt) {
     const T = this.tuner, I = this.g.input, G = this.g.G, now = this.g.hostNow();
-    if (I.hit('KeyE') || I.hit('Escape') || I.hit('Tab')) return this.closeTuner();
+    // 연 순간의 E 입력이 곧바로 닫기로 처리되지 않도록 잠깐 무시
+    T.age += dt;
+    if (T.age > 0.3 && (I.hit('KeyE') || I.hit('Escape') || I.hit('Tab'))) return this.closeTuner();
     if (I.down('KeyA') || I.down('ArrowLeft')) T.f -= dt * 1.1;
     if (I.down('KeyD') || I.down('ArrowRight')) T.f += dt * 1.1;
     if (I.down('KeyW') || I.down('ArrowUp')) T.a += dt * 0.5;
