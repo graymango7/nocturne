@@ -9,30 +9,35 @@ export function setupTouch(input, hooks) {
   const R = 56;
   let stickId = null, sx = 0, sy = 0, lookId = null, lx = 0, ly = 0;
 
+  // 화면을 돌려 그리는 중이면 손가락 좌표도 같이 돌려서 계산
+  const pt = t => document.body.classList.contains('force-land') ? { x: t.clientY, y: innerWidth - t.clientX } : { x: t.clientX, y: t.clientY };
+  const viewW = () => document.body.classList.contains('force-land') ? innerHeight : innerWidth;
   const isButton = el => el && el.closest('[data-vkey],[data-vtap],[data-act],[data-toggle]');
   root.addEventListener('touchstart', e => {
     for (const t of e.changedTouches) {
       if (isButton(t.target)) continue;
-      if (t.clientX < innerWidth * 0.42 && stickId === null) {
-        stickId = t.identifier; sx = t.clientX; sy = t.clientY;
+      const p = pt(t);
+      if (p.x < viewW() * 0.42 && stickId === null) {
+        stickId = t.identifier; sx = p.x; sy = p.y;
         stick.style.left = sx + 'px'; stick.style.top = sy + 'px'; stick.classList.add('on');
       } else if (lookId === null) {
-        lookId = t.identifier; lx = t.clientX; ly = t.clientY;
+        lookId = t.identifier; lx = p.x; ly = p.y;
       }
     }
     e.preventDefault();
   }, { passive: false });
   root.addEventListener('touchmove', e => {
     for (const t of e.changedTouches) {
+      const p = pt(t);
       if (t.identifier === stickId) {
-        let dx = t.clientX - sx, dy = t.clientY - sy;
+        let dx = p.x - sx, dy = p.y - sy;
         const d = Math.hypot(dx, dy);
         if (d > R) { dx *= R / d; dy *= R / d; }
         knob.style.transform = `translate(${dx}px, ${dy}px)`;
         input.axis.x = dx / R; input.axis.y = -dy / R;
       } else if (t.identifier === lookId) {
-        input.look((t.clientX - lx) * 2.2, (t.clientY - ly) * 2.2);
-        lx = t.clientX; ly = t.clientY;
+        input.look((p.x - lx) * 2.2, (p.y - ly) * 2.2);
+        lx = p.x; ly = p.y;
       }
     }
     e.preventDefault();

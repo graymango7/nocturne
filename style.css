@@ -192,7 +192,9 @@ body.touch .t-top, body.touch #clock { right: max(6px, env(safe-area-inset-right
 .end-in button { background: linear-gradient(135deg, #5ef0ff, #b06bff); border: 0; border-radius: 10px; padding: 12px 28px; font-weight: 900; color: #0a0614; }
 
 /* ── 모바일 터치 ── */
-#touch, #rotate { display: none; }
+#touch { display: none; }
+/* 회전 잠금/아이폰 대비: 세로로 인식되면 게임 전체를 90° 돌려 가로로 그린다 */
+body.force-land { position: fixed; top: 0; left: 0; transform-origin: top left; transform: rotate(90deg) translateY(-100%); overflow: hidden; }
 body.touch.playing #touch { display: block; position: fixed; inset: 0; z-index: 10; touch-action: none; }
 #stick { position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: rgba(255,255,255,0.08); opacity: 0; pointer-events: none; left: 18%; top: 72%; transition: opacity 0.15s; }
 #stick.on, body.touch.playing #stick { opacity: 1; }
@@ -205,7 +207,7 @@ body.touch.playing #touch { display: block; position: fixed; inset: 0; z-index: 
 .t-use { right: 118px; bottom: 34px; width: 66px; height: 66px; font-size: 24px; color: var(--accent) !important; }
 .t-sm { width: 50px; height: 50px; font-size: 20px; }
 .t-crouch { right: 120px; bottom: 112px; } .t-light { right: 64px; bottom: 124px; } .t-flare { right: 10px; bottom: 124px; } .t-ping { right: 186px; bottom: 60px; }
-.t-top { position: absolute; top: 48px; right: 6px; display: flex; flex-direction: column; gap: 6px; }
+.t-top { position: absolute; top: 46px; right: 6px; display: flex; gap: 6px; }
 .t-top button { position: static !important; width: 40px; height: 40px; border-radius: 10px !important; font-size: 17px; }
 .tn-touch { display: none; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
 body.touch .tn-touch { display: flex; }
@@ -214,22 +216,19 @@ body.touch .tn-touch { display: flex; }
 body.touch #prompt { pointer-events: auto; padding: 12px 18px; font-size: 15px; border-color: var(--accent); z-index: 12; position: fixed; }
 body.touch #prompt.dis { pointer-events: none; border-color: var(--line); }
 body.touch .tags, body.touch #clickHint, body.touch .credits { display: none !important; }
-body.touch #mission { top: 6px; left: 6px; padding: 6px 10px; max-width: 34vw; }
+body.touch #mission { top: 6px; left: 6px; padding: 6px 10px; max-width: 34%; }
 body.touch #mTitle { font-size: 12px; } body.touch #mObjs { font-size: 11px; }
-body.touch #compass { width: min(420px, 40vw); top: 0; }
+body.touch #compass { width: min(420px, 40%); top: 0; }
 body.touch #clock { top: 6px; right: 6px; padding: 4px 10px; font-size: 13px; }
-body.touch #team { top: 48px; right: 54px; font-size: 11px; }
-body.touch #toasts { bottom: auto; top: 30vh; left: 6px; width: 38vw; gap: 4px; }
+body.touch #team { top: 92px; right: 6px; font-size: 11px; }
+body.touch #toasts { bottom: auto; top: 30%; left: 6px; width: 38%; gap: 4px; }
 body.touch .toast { font-size: 12px; padding: 5px 8px; }
 body.touch .toast:nth-last-child(n+4) { display: none; }
 body.touch #bottom { bottom: 6px; }
 body.touch #banner { top: 16%; }
-body.touch #phone { right: 8px; width: min(360px, 62vw); height: 94vh; bottom: -110vh; }
-body.touch #phone.open { bottom: 3vh; }
+body.touch #phone { right: 8px; width: min(360px, 62%); height: 94%; bottom: -110%; transform: none; }
+body.touch #phone.open { bottom: 3%; }
 body.touch #chatIn { bottom: auto; top: 8px; left: 50%; transform: translateX(-50%); }
-@media (orientation: portrait) {
-  body.touch.playing #rotate { display: grid; place-items: center; text-align: center; position: fixed; inset: 0; z-index: 60; background: rgba(7,6,15,0.95); font-size: 22px; line-height: 1.8; }
-}
 
 @media (max-width: 700px) {
   #mission { max-width: 60vw; font-size: 12px; }

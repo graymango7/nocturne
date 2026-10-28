@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NOCTURNE 이동 중</title>
+<style>body{margin:0;height:100vh;display:grid;place-items:center;background:#07060f;color:#ece8ff;font-family:sans-serif;text-align:center}a{color:#5ef0ff}</style>
+<script>
+  var seg = location.pathname.split('/').filter(Boolean);
+  var q = new URLSearchParams(location.search).get('room') || seg[seg.length - 1] || '';
+  var code = q.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  location.replace('/nocturne/' + (code.length === 5 ? '?room=' + code : ''));
+</script></head>
+<body><p>게임으로 이동 중… <a href="/nocturne/">안 넘어가면 여기를 누르세요</a></p></body></html>

@@ -24,7 +24,16 @@ renderer.toneMappingExposure = 1.05;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 1600);
 scene.add(camera);
-addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
+// 폰이 세로로 인식되면(회전 잠금·아이폰) 게임을 90° 돌려 항상 가로로 플레이
+function fitView() {
+  const force = IS_TOUCH && (game?.mode === 'play' || game?.mode === 'ended') && innerHeight > innerWidth;
+  document.body.classList.toggle('force-land', force);
+  const W = force ? innerHeight : innerWidth, H = force ? innerWidth : innerHeight;
+  document.body.style.width = force ? W + 'px' : ''; document.body.style.height = force ? H + 'px' : '';
+  renderer.setSize(W, H); camera.aspect = W / H; camera.updateProjectionMatrix();
+}
+addEventListener('resize', () => fitView());
+addEventListener('orientationchange', () => setTimeout(fitView, 200));
 
 const ents = genEntities();
 const byId = Object.fromEntries(ents.map(e => [e.id, e]));
@@ -168,6 +177,7 @@ function enterGame() {
   $('#menu').style.display = 'none';
   $('#hud').classList.remove('hidden');
   document.body.classList.add('playing');
+  fitView();
   player.setBody(me.color, me.name);
   const idx = Object.keys(G.players).indexOf(game.myId);
   lastResp = me.resp;
