@@ -10,7 +10,12 @@ export class Input {
     this.mdx = 0; this.mdy = 0; this.wheel = 0; this.locked = false; this.everLocked = false;
     const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA'); };
     addEventListener('keydown', e => {
-      if (typing()) return;
+      // 휴대폰 검색창에 커서가 있어도 Tab/Esc는 게임으로 넘겨 창을 닫을 수 있게
+      if (typing()) {
+        if (e.code !== 'Tab' && e.code !== 'Escape') return;
+        if (document.activeElement?.id === 'chatIn') return;
+        document.activeElement.blur();
+      }
       if (e.code === 'Tab') e.preventDefault();
       if (!e.repeat) this.hits.add(e.code);
       this.keys.add(e.code);

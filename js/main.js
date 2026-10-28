@@ -115,6 +115,13 @@ function onFx(m) {
     }
     case 'whimper': audio.whimper(); break;
     case 'stormWarn': audio.stormWarn(); ui.banner('☣ 포자 폭풍 접근', '15초 뒤 시야가 막힙니다'); break;
+    case 'drop': {
+      audio.stormWarn();
+      const d = Math.round(Math.hypot(m.x - player.pos.x, m.z - player.pos.z));
+      if (game.mode === 'play') ui.banner('📦 보급 캡슐 낙하!', `약 ${d}m 떨어진 곳 — 나침반의 📦를 따라가요`);
+      break;
+    }
+    case 'lantern': audio.power(); break;
     case 'ping': {
       const pl = game.G?.players[m.pid]; if (!pl) break;
       game.pings = game.pings.filter(p => p.pid !== m.pid);
@@ -212,6 +219,8 @@ function info(e) {
     if (activeObj('nest', 'extract')) return { text: `<kbd>E</kbd> 계속 누르기 — 둥지 핵 추출 ${Math.floor((game.snap?.cp ?? G.coreProg) / CORE_NEED * 100)}%`, cont: 'core' };
     return { text: '둥지 핵 — 단단히 박혀 있다', dis: true };
   }
+  if (k === 'capsule') return { text: `<kbd>E</kbd> 계속 누르기 — 보급 캡슐 열기 ${Math.floor((G.drop?.prog || 0) * 100)}% (소리가 큼!)`, cont: 'capsule' };
+  if (k === 'moonflower' && !isNight(game.time())) return { text: '월광화 봉오리 — 밤에만 핀다', dis: true };
   if (PICK[k]) {
     if (k === 'crystal' && !isNight(game.time()) && !stormOn(G)) return { text: '공명 결정 — 햇빛에 과열됨 (밤에만 채굴)', dis: true };
     if (CARRY[k] && G.carry[game.myId]) return { text: '이미 무언가를 들고 있다', dis: true };
@@ -260,6 +269,7 @@ function findTarget() {
     const yo = { relay: 1.0, pump: 1.0, workbench: 0.9, antenna: 1.2, beaconSlot: 0.1 }[e.kind] ?? 0.2;
     consider(e, p.x, p.y + yo, p.z, big ? 4.5 : 3.2);
   }
+  if (G.drop && game.hostNow() - G.drop.t0 >= 5) consider({ kind: 'capsule', id: 'capsule' }, G.drop.x, world.groundAt(G.drop.x, G.drop.z) + 0.8, G.drop.z, 3.6);
   const snap = game.snap?.p || {};
   for (const id in G.players) {
     if (id === game.myId || !G.players[id].down || !snap[id]) continue;
@@ -282,7 +292,7 @@ function interact(dt) {
   if (inf.cont) {
     const on = input.down('KeyE');
     if (on) { holdKind = inf.cont; player.reach = Math.max(player.reach, 0.5); }
-    const prog = inf.cont === 'core' ? (game.snap?.cp ?? 0) / CORE_NEED : (game.G.beaconE ?? 1);
+    const prog = inf.cont === 'core' ? (game.snap?.cp ?? 0) / CORE_NEED : inf.cont === 'capsule' ? (game.G.drop?.prog || 0) : (game.G.beaconE ?? 1);
     ui.setPrompt(inf.text, on ? prog : 0); return;
   }
   if (input.down('KeyE')) {
@@ -318,8 +328,10 @@ function playFrame(dt) {
   const G = game.G;
   if (!chatOpen) {
     if (input.hit('Tab') && !ui.tuner && !player.down) ui.togglePhone();
+    else if (input.hit('Escape') && ui.phoneOpen) ui.togglePhone(false);
     if (input.hit('Enter') && !ui.tuner) openChat();
     if ((input.hit('KeyQ') || input.hit('Mouse2')) && !player.locked) ping();
+    if (input.hit('KeyG') && !player.locked && (G.inv.lantern || 0) > 0) { game.req({ a: 'lantern', x: player.pos.x, z: player.pos.z }); player.reach = 1; }
     if (input.hit('KeyF') && !player.locked && (G.inv.flare || 0) > 0) {
       const f = player.forward();
       game.req({ a: 'flare', x: player.pos.x + f.x * 7, z: player.pos.z + f.z * 7 });

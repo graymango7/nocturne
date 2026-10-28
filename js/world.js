@@ -374,7 +374,7 @@ export class World {
       water: glow('#9fe8ff', '#4fc8ff', 1.2, { transparent: true, opacity: 0.8 }),
       battery: std('#f2c230', { roughness: 0.4 }), dark: std('#26262c'), metal: std('#cfd3d8', { metalness: 0.6, roughness: 0.35 }),
       green: glow('#0a2', '#2f6', 1.5), blue: glow('#024', '#3cf', 1.5), red: glow('#200', '#f33', 1.5), orange: std('#e8742a'),
-      core: glow('#c14dff', '#b230ff', 2.2), screen: glow('#111', '#2affd5', 1.0),
+      core: glow('#c14dff', '#b230ff', 2.2), moon: glow('#eaf4ff', '#9fd0ff', 0.2), screen: glow('#111', '#2affd5', 1.0),
     };
     const beamMats = {};
     const beam = color => {
@@ -395,6 +395,48 @@ export class World {
     const ringG = new THREE.RingGeometry(SAFE_R - 0.4, SAFE_R, 96); ringG.rotateX(-Math.PI / 2);
     this.safeRing = new THREE.Mesh(ringG, new THREE.MeshBasicMaterial({ color: '#b06bff', transparent: true, opacity: 0, depthWrite: false, fog: false }));
     this.safeRing.position.y = 0.15; this.scene.add(this.safeRing);
+
+    // 보급 캡슐 (밤 이벤트)
+    const cap = new THREE.Group(); cap.visible = false; this.scene.add(cap); this.capsule = cap;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.8, 1.6, 12), std('#c8ccd2', { metalness: 0.6, roughness: 0.35 })); body.position.y = 0.8; body.castShadow = true; cap.add(body);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.7, 0.8, 12), std('#e8742a')); cone.position.y = 2.0; cap.add(cone);
+    this.capStripe = glow('#331', '#ff9a3d', 2); const st = new THREE.Mesh(new THREE.CylinderGeometry(0.82, 0.82, 0.15, 12), this.capStripe); st.position.y = 0.5; cap.add(st);
+    const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 120, 8, 1, true).translate(0, 60, 0), new THREE.MeshBasicMaterial({ color: '#ff9a3d', transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    cap.add(cb); this.capBeam = cb;
+    this.capLight = new THREE.PointLight('#ff9a3d', 0, 25, 1.2); this.scene.add(this.capLight);
+    // 휴대용 UV 랜턴 (최대 3개)
+    this.lanternPool = [];
+    for (let i = 0; i < 3; i++) {
+      const lg = new THREE.Group(); lg.visible = false; this.scene.add(lg);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.08, 1.4, 6), std('#26262c')); pole.position.y = 0.7; lg.add(pole);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 8), glow('#e6ccff', '#b06bff', 3)); head.position.y = 1.5; lg.add(head);
+      const rg = new THREE.RingGeometry(8.6, 9, 64); rg.rotateX(-Math.PI / 2);
+      const ring = new THREE.Mesh(rg, new THREE.MeshBasicMaterial({ color: '#b06bff', transparent: true, opacity: 0.35, depthWrite: false, fog: false })); ring.position.y = 0.2; lg.add(ring);
+      const light = new THREE.PointLight('#b06bff', 0, 16, 1.2); this.scene.add(light);
+      this.lanternPool.push({ g: lg, light });
+    }
+  }
+
+  updateNight(dt, now) {
+    const G = this.G, d = G.drop;
+    this.capsule.visible = !!d;
+    if (d) {
+      const fall = Math.max(0, 5 - (now - d.t0)), gy = this.groundAt(d.x, d.z);
+      this.capsule.position.set(d.x, gy + fall * fall * 6, d.z);
+      this.capsule.rotation.z = fall > 0 ? 0.3 : 0.12;
+      this.capBeam.visible = fall <= 0;
+      this.capStripe.emissiveIntensity = 1.5 + Math.sin(this.clock * (d.prog > 0 ? 12 : 3)) * 1;
+      this.capLight.position.set(d.x, gy + 2 + fall * fall * 6, d.z); this.capLight.intensity = 18;
+    } else this.capLight.intensity = 0;
+    const ls = (G.lanterns || []).filter(l => l.until > now);
+    this.lanternPool.forEach((p, i) => {
+      const l = ls[i]; p.g.visible = !!l;
+      if (!l) { p.light.intensity = 0; return; }
+      const gy = this.groundAt(l.x, l.z), left = l.until - now;
+      p.g.position.set(l.x, gy, l.z);
+      p.light.position.set(l.x, gy + 1.6, l.z);
+      p.light.intensity = (left < 8 && Math.random() < 0.2) ? 2 : 14;
+    });
   }
 
   makeEnt(e, beam) {
@@ -403,6 +445,16 @@ export class World {
       const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; g.add(m); return m;
     };
     switch (e.kind) {
+      case 'moonflower': {
+        mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.7, 5).translate(0, 0.35, 0), M.fiber, 0, 0, 0);
+        const fl = new THREE.Group(); fl.position.y = 0.72; g.add(fl);
+        for (let i = 0; i < 6; i++) {
+          const p = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 4), M.moon); p.scale.set(0.5, 0.15, 1.2);
+          p.position.set(Math.cos(i / 6 * 6.283) * 0.12, 0, Math.sin(i / 6 * 6.283) * 0.12); p.rotation.y = -i / 6 * 6.283; fl.add(p);
+        }
+        g.userData.flower = fl;
+        break;
+      }
       case 'fiber':
         for (let i = 0; i < 6; i++) { const b = mesh(S.blade, M.fiber, (R() - 0.5) * 0.4, 0, (R() - 0.5) * 0.4, 1, 0.8 + R() * 0.6); b.rotation.set((R() - 0.5) * 0.6, 0, (R() - 0.5) * 0.6); }
         mesh(S.ball, M.fiberTip, 0, 1.05, 0, 0.09);
@@ -588,6 +640,7 @@ export class World {
     this.crystalMat.emissive.set(hot ? '#ff6a1a' : '#2fc8ff'); this.crystalMat.emissiveIntensity = hot ? 0.35 + Math.sin(this.clock * 2) * 0.1 : 0.6 + night;
     this.M.crystal.emissive.set(hot ? '#ff5a1a' : '#3fd0ff');
     this.M.moss.emissiveIntensity = 0.8 + night * 2.5;
+    this.M.moon.emissiveIntensity = isNight(t) ? 2.2 + Math.sin(this.clock * 2) * 0.4 : 0.1;
     this.sporeMat.opacity = Math.max(0.1 + night * 0.6, storm * 0.85);
     this.sporeMat.size = 0.12 + storm * 0.3;
     this.sporeMat.color.set('#9fffe0').lerp(C('#e2ff9a'), storm);
@@ -633,6 +686,7 @@ export class World {
       const m = this.meshes[e.id];
       m.visible = !G.taken[e.id] && !(pending[e.id] > performance.now());
       const u = m.userData;
+      if (u.flower) u.flower.scale.setScalar(isNight(t) ? 1 : 0.35);
       if (u.spin) u.spin.rotation.z += dt;
       if (u.blink) u.blink.visible = Math.sin(this.clock * 6) > -0.3;
       if (u.orb) { u.orb.rotation.y += dt; u.orb.scale.setScalar(1 + Math.sin(this.clock * 3) * 0.1 + (G.coreProg || 0) * 0.02); }
@@ -648,5 +702,6 @@ export class World {
         if (u.wheel && on) u.wheel.rotation.z += dt * 6;
       }
     }
+    this.updateNight(dt, now);
   }
 }

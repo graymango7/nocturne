@@ -44,7 +44,7 @@ export class UI {
       const p = G.players[id], c = G.carry[id];
       return `<div class="tm ${p.down ? 'down' : ''}"><i style="background:${p.color}"></i>${ROLE_INFO[p.role]?.icon || ''} ${esc(p.name)}${id === this.g.myId ? ' (나)' : ''}${p.down ? ' <b>쓰러짐</b>' : ''}${c ? ' ' + ITEMS[c.replace(/\d+$/, '')].icon : ''}</div>`;
     }).join('') : '';
-    $('#flareCnt').textContent = G.inv.flare ? `🧨 ×${G.inv.flare} [F]` : '';
+    $('#flareCnt').textContent = [G.inv.flare ? `🧨 ×${G.inv.flare} [F]` : '', G.inv.lantern ? `🏮 ×${G.inv.lantern} [G]` : ''].filter(Boolean).join('  ');
     $('#phSig').textContent = G.flags.comms ? '📶 KX-RELAY' : 'NO SERVICE';
     if (this.phoneOpen && this.app !== 'search' && this.app !== 'scanner') this.renderApp();
   }
@@ -120,6 +120,7 @@ export class UI {
     }
     if (Object.keys(G.carry).includes(g.myId)) out.push({ x: -8, z: 4.5, label: '함선 (운반 목적지)', color: '#5dff8a' });
     out.push({ x: -10, z: 0, label: '함선', color: '#9fd8ff', ship: true });
+    if (G.drop) out.push({ x: G.drop.x, z: G.drop.z, label: '📦 보급 캡슐', color: '#ff9a3d', drop: true });
     for (const p of g.pings) out.push({ x: p.x, z: p.z, label: '📍 ' + p.name, color: p.color, ping: true });
     if (G.flags.comms) for (const e of g.ents) if (e.kind === 'log' && !G.taken[e.id]) out.push({ x: e.x, z: e.z, label: '오리온-3 로그', color: '#5ac8ff', small: true });
     const snap = g.snap?.p || {};
@@ -148,6 +149,7 @@ export class UI {
       const x = W / 2 + Math.max(-1, Math.min(1, rel / (fov / 2))) * (W / 2 - 8);
       c.fillStyle = m.color;
       if (m.mate) { c.beginPath(); c.arc(x, 33, 4, 0, 7); c.fill(); }
+      else if (m.drop) { c.font = '14px sans-serif'; c.fillText('📦', x, 39); }
       else if (m.ping) { c.font = '14px sans-serif'; c.fillText('📍', x, 39); }
       else if (m.ship) { c.font = '13px sans-serif'; c.fillText('🚀', x, 39); }
       else { c.beginPath(); c.moveTo(x, 47); c.lineTo(x - 5, 54); c.lineTo(x + 5, 54); c.fill(); }
@@ -202,7 +204,7 @@ export class UI {
     $('#phScreen').style.display = id === 'home' ? 'none' : 'block';
     $('#phBack').style.visibility = id === 'home' ? 'hidden' : 'visible';
     this.renderApp();
-    if (id === 'search') setTimeout(() => $('#srchIn')?.focus(), 50);
+    if (id === 'search') setTimeout(() => { if (this.phoneOpen && this.app === 'search') $('#srchIn')?.focus(); }, 50);
   }
 
   renderApp() {
@@ -266,7 +268,7 @@ export class UI {
         el.innerHTML = `<h3>조작법</h3><table class="keys">
           <tr><td>WASD</td><td>이동</td></tr><tr><td>Shift</td><td>달리기</td></tr><tr><td>C / Ctrl</td><td>웅크리기 (발각 ↓)</td></tr>
           <tr><td>Space</td><td>점프</td></tr><tr><td>E (길게)</td><td>줍기 / 사용</td></tr><tr><td>Tab</td><td>휴대폰</td></tr>
-          <tr><td>L</td><td>손전등 (밤엔 위험!)</td></tr><tr><td>F</td><td>UV 조명탄 던지기</td></tr><tr><td>Q / 우클릭</td><td>핑 — 보는 곳을 팀에게 표시</td></tr><tr><td>V</td><td>1인칭 / 3인칭</td></tr>
+          <tr><td>L</td><td>손전등 (밤엔 위험!)</td></tr><tr><td>F</td><td>UV 조명탄 던지기</td></tr><tr><td>G</td><td>휴대용 UV 랜턴 설치 (60초 안전 구역)</td></tr><tr><td>Q / 우클릭</td><td>핑 — 보는 곳을 팀에게 표시</td></tr><tr><td>V</td><td>1인칭 / 3인칭</td></tr>
           <tr><td>Enter</td><td>채팅</td></tr><tr><td>Esc</td><td>일시정지 / 초대 링크</td></tr></table>
           ${g.input.touch ? '<h3>📱 터치 조작</h3><p class="hint">왼쪽 아래를 엄지로 누르면 조이스틱이 생겨요 (끝까지 밀면 달리기). 오른쪽 화면을 드래그하면 시점이 돌아가요. 화면 가운데 안내 버튼(또는 E 버튼)을 누르고 있으면 줍기/사용.</p>' : ''}
           <p class="hint">외계 생물은 손전등, 달리기, 빛나는 물건에 끌려요. 웅크리면 덜 들켜요.</p>

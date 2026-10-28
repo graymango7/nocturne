@@ -1,11 +1,12 @@
 // 호스트(방장) 권한 게임 로직 — 혼자 플레이할 때도 로컬에서 그대로 돈다.
 import { MISSIONS, SYNCS, RECIPES, CARRY, SEARCH, ITEMS } from './data.js';
-import { P } from './terrain.js';
+import { P, inLake } from './terrain.js';
 
 export const DAY_SECONDS = 960;              // 하루 16분 (낮 약 10분 / 밤 약 5분)
 export const isNight = t => t >= 0.68;
 export const ROOM = { x0: -3.9, x1: 3.9, z0: -2.9, z1: 2.9 };
 export const SAFE_R = 24;
+export const LANTERN_R = 9;
 export const PANEL = { x: -8, z: 4.5 };
 export const CORE_NEED = 12;                 // 핵 추출에 필요한 '인원×초'
 export const ROLES = ['scout', 'engineer', 'medic'];
@@ -21,7 +22,7 @@ export function freshState() {
   return {
     started: false, ended: false, mission: 0, od: {}, os: {}, time: 0.08, timeRun: false, day: 1,
     inv: {}, crafted: {}, search: {}, flags: {}, taken: {}, moved: {}, sync: {}, players: {}, carry: {},
-    flares: [], storm: null, beaconE: 1, coreProg: 0, countdown: 0, launch: false, logs: {}, stats: { downs: 0, start: 0, end: 0 }, now: 0,
+    flares: [], lanterns: [], drop: null, storm: null, beaconE: 1, coreProg: 0, countdown: 0, launch: false, logs: {}, stats: { downs: 0, start: 0, end: 0 }, now: 0,
   };
 }
 
@@ -126,6 +127,8 @@ export class Host {
       this.updateCore(dt);
       this.updateBeacon(dt);
       this.updateStorm();
+      this.updateDrop(dt);
+      if (G.lanterns.length && G.lanterns.some(l => l.until <= this.now)) { G.lanterns = G.lanterns.filter(l => l.until > this.now); this.dirty = true; }
       this.updateLaunch(dt);
       this.updateFlares();
       this.updateAliens(dt);
@@ -257,6 +260,15 @@ export class Host {
         this.msg('SYS', `${this.name(pid)} 대원이 ${t.name} 대원을 일으켰습니다.`); break;
       }
       case 'chat': this.msg(this.name(pid), String(a.text || '').slice(0, 140)); break;
+      case 'lantern': {
+        if ((G.inv.lantern || 0) <= 0 || !Number.isFinite(+a.x) || !Number.isFinite(+a.z)) return;
+        G.inv.lantern--;
+        G.lanterns = G.lanterns.filter(l => l.until > this.now).slice(-2);
+        G.lanterns.push({ x: +a.x, z: +a.z, until: this.now + 60 });
+        this.dirty = true; this.out({ t: 'fx', k: 'lantern' });
+        this.msg('SYS', `🏮 ${this.name(pid)}: 휴대용 UV 랜턴 설치 (60초)`);
+        break;
+      }
       case 'ping': {
         if (this.now - (this.pingAt[pid] || 0) < 0.8 || !Number.isFinite(+a.x) || !Number.isFinite(+a.z)) return;
         this.pingAt[pid] = this.now;
@@ -275,6 +287,7 @@ export class Host {
     if (p && dist(p, this.entPos(e)) > 8) return;
     const k = e.kind;
     if (k === 'crystal' && !isNight(G.time) && !stormOn(G)) return this.msg('SYS', '결정이 햇빛에 달궈져 있다. 밤에만 채굴할 수 있다.', pid);
+    if (k === 'moonflower' && !isNight(G.time)) return this.msg('SYS', '월광화가 봉오리를 닫고 있다. 밤에만 채집할 수 있다.', pid);
     if (k === 'water') { G.inv.water = (G.inv.water || 0) + 1; this.dirty = true; this.out({ t: 'fx', k: 'pick', pid }); return; }
     if (CARRY[k]) {
       if (G.carry[pid]) return this.msg('SYS', '이미 무언가를 들고 있다.', pid);
@@ -459,25 +472,69 @@ export class Host {
     if (!s) {
       if (this.now >= this.nextStorm) {
         if (!isNight(G.time) && G.time > 0.06 && G.time < 0.48) {
-          G.storm = { phase: 'warn', end: this.now + 15 }; this.dirty = true;
+          G.storm = { phase: 'warn', end: this.now + 10 }; this.dirty = true;
           this.out({ t: 'fx', k: 'stormWarn' });
-          this.msg('MIRA', G.flags.stormSeen ? '☣ 포자 폭풍이 다시 다가와요. 15초!'
-            : '☣ 기압이 급격히 떨어져요… 포자 폭풍이에요! 15초 뒤엔 앞이 거의 안 보이고, 그것들이 낮에도 깨어나요. 함선 쪽으로 돌아오거나 웅크려서 버텨요.');
+          this.msg('MIRA', G.flags.stormSeen ? '☣ 포자 폭풍이 다시 다가와요. 10초!'
+            : '☣ 기압이 급격히 떨어져요… 포자 폭풍이에요! 10초 뒤엔 앞이 거의 안 보이고, 그것들이 낮에도 깨어나요. 함선 쪽으로 돌아오거나 웅크려서 버텨요.');
         } else this.nextStorm = this.now + 25;
       }
     } else if (s.phase === 'warn' && this.now >= s.end) {
-      G.storm = { phase: 'on', start: this.now, end: this.now + 70 }; this.dirty = true;
+      G.storm = { phase: 'on', start: this.now, end: this.now + 35 }; this.dirty = true;
       if (!G.flags.stormSeen) {
         G.flags.stormSeen = true;
         this.say([['MIRA', '잠깐… 폭풍의 냉기 때문에 결정 평원의 공명 결정이 식고 있어요! 폭풍이 부는 동안엔 낮에도 결정을 캘 수 있어요.']]);
       }
     } else if (s.phase === 'on' && this.now >= s.end) {
       G.storm = null; this.dirty = true;
-      this.nextStorm = this.now + 330 + Math.random() * 180;
+      this.nextStorm = this.now + 420 + Math.random() * 180;
       this.msg('SYS', '☣ 포자 폭풍이 지나갔다.');
     }
     const t = G.storm;
-    this.stormK = t?.phase === 'on' ? Math.max(0, Math.min(1, (this.now - t.start) / 8, (t.end - this.now) / 8)) : 0;
+    this.stormK = t?.phase === 'on' ? Math.max(0, Math.min(1, (this.now - t.start) / 5, (t.end - this.now) / 5)) : 0;
+  }
+
+  // 밤의 보급 캡슐: 첫 밤부터 밤마다 최대 2번 떨어진다. 여는 동안 주변 개체가 몰려온다
+  updateDrop(dt) {
+    const G = this.G;
+    if (!isNight(G.time) || G.launch || G.mission < 5) {
+      if (G.drop) { if (!isNight(G.time)) this.msg('SYS', '📦 날이 밝자 보급 캡슐 신호가 끊겼다.'); G.drop = null; this.dirty = true; }
+      this.dropsTonight = 0; this.nextDrop = undefined; return;
+    }
+    if (this.nextDrop === undefined) this.nextDrop = this.now + 25 + Math.random() * 35;
+    if (!G.drop && (this.dropsTonight || 0) < 2 && this.now >= this.nextDrop) {
+      let x = 0, z = 0;
+      for (let k = 0; k < 30; k++) {
+        const ang = Math.random() * Math.PI * 2, d = 70 + Math.random() * 80;
+        x = Math.cos(ang) * d; z = Math.sin(ang) * d;
+        if (!inLake(x, z) && Math.abs(x) < 260 && Math.abs(z) < 260) break;
+      }
+      G.drop = { x, z, t0: this.now, prog: 0, loud: false };
+      this.dropsTonight = (this.dropsTonight || 0) + 1; this.nextDrop = this.now + 110 + Math.random() * 60;
+      this.dirty = true; this.out({ t: 'fx', k: 'drop', x, z });
+      this.msg('MIRA', G.flags.dropSeen ? '📦 보급 캡슐이 또 떨어져요! 나침반의 📦 표시를 따라가요.'
+        : '📦 하늘에서 뭔가 떨어져요… 함대가 남긴 보급 캡슐이에요! 열면 쓸 만한 게 있을 거예요. 단, 여는 소리가 커서 그것들이 몰려와요.');
+      G.flags.dropSeen = true;
+    }
+    const d = G.drop;
+    if (!d || this.now - d.t0 < 5) return;
+    const holders = this.alive().filter(id => this.pos[id].hold === 'capsule' && Math.hypot(this.pos[id].x - d.x, this.pos[id].z - d.z) < 3.5);
+    if (!holders.length) return;
+    if (!d.loud) {
+      d.loud = true;
+      for (const b of this.aliens) if (b.type !== 'screamer' && Math.hypot(b.x - d.x, b.z - d.z) < 75) { b.alert = this.now + 12; b.tg = holders[0]; if (b.st === 'sleep') b.st = 'wander'; }
+      this.msg('MIRA', '캡슐 잠금장치 소리가 울려요! 주변 개체들이 다가와요 — 빨리!');
+    }
+    d.prog = Math.min(1, d.prog + dt * holders.length / 5);
+    this.dirty = true;
+    if (d.prog >= 1) {
+      const pool = [['battery', 1], ['fiber', 3], ['resin', 2], ['moss', 2], ['chitin', 2], ['moonflower', 2], ['purewater', 1]];
+      const got = [['flare', 2]];
+      for (let i = 0; i < 2; i++) got.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+      for (const [k, n] of got) G.inv[k] = (G.inv[k] || 0) + n;
+      G.drop = null;
+      this.out({ t: 'fx', k: 'craft', pid: holders[0] });
+      this.msg('SYS', '📦 보급 캡슐 획득: ' + got.map(([k, n]) => `${ITEMS[k].icon}${ITEMS[k].name} ×${n}`).join(', '));
+    }
   }
 
   updateLaunch(dt) {
@@ -492,6 +549,8 @@ export class Host {
     G.flares = G.flares.filter(f => f.until > this.now);
     if (G.flares.length !== n) this.dirty = true;
   }
+
+  inLantern(p) { return this.G.lanterns.some(l => l.until > this.now && Math.hypot(p.x - l.x, p.z - l.z) < LANTERN_R); }
 
   spawnAlien(x, z, guard = false, type = 'stalker') {
     this.aliens.push({ id: ++this.aid, type, x, z, ry: 0, st: guard ? 'sleep' : 'wander', tx: x, tz: z, tg: null, cd: type === 'screamer' ? 3 : 0, guard, hx: x, hz: z, fl: 0, leave: 0, fx: 0, fz: 0, scr: 0, alert: 0 });
@@ -561,7 +620,7 @@ export class Host {
         } else {
           let best = null, bd = 1e9;
           for (const q of players) {
-            if (safe && Math.hypot(q.p.x, q.p.z) < SAFE_R) continue;
+            if ((safe && Math.hypot(q.p.x, q.p.z) < SAFE_R) || this.inLantern(q.p)) continue;
             const d = dist(a, q.p), R = 30 + (q.p.sp ? 8 : 0) - (q.p.cr ? 8 : 0) - (G.players[q.id]?.role === 'scout' ? 5 : 0);
             if (d < R && d < bd) { bd = d; best = q; }
           }
@@ -598,7 +657,7 @@ export class Host {
         // 표적 찾기
         let best = null, bd = 1e9;
         for (const q of players) {
-          if (safe && Math.hypot(q.p.x, q.p.z) < SAFE_R) continue;
+          if ((safe && Math.hypot(q.p.x, q.p.z) < SAFE_R) || this.inLantern(q.p)) continue;
           const d = dist(a, q.p);
           let R = 13 + (q.p.fl ? 16 : 0) + (q.p.sp ? 9 : 0) - (q.p.cr ? 6 : 0) - (G.players[q.id]?.role === 'scout' ? 4 : 0);
           if (q.carry === 'core1') R += 22;
@@ -633,6 +692,10 @@ export class Host {
         a.ry = Math.atan2(-dx, -dz);
       }
       a.x = Math.max(-285, Math.min(285, a.x)); a.z = Math.max(-285, Math.min(285, a.z));
+      for (const l of G.lanterns) {
+        const lx = a.x - l.x, lz = a.z - l.z, r = Math.hypot(lx, lz);
+        if (r < LANTERN_R && l.until > this.now) { a.x = l.x + lx / (r || 1) * LANTERN_R; a.z = l.z + lz / (r || 1) * LANTERN_R; if (a.st === 'chase') a.st = 'wander'; }
+      }
       if (safe) {
         const r = Math.hypot(a.x, a.z);
         if (r < SAFE_R) { const k = SAFE_R / (r || 1); a.x *= k; a.z *= k; if (a.st === 'chase') { a.st = 'wander'; a.tx = a.x * 2; a.tz = a.z * 2; } }
@@ -648,7 +711,7 @@ export class Host {
     try {
       const S = JSON.parse(JSON.stringify(G));
       for (const pid in S.carry) { const e = this.byId[S.carry[pid]]; S.moved[e.id] = { x: PANEL.x, z: PANEL.z + 2, y: 0 }; delete S.taken[e.id]; }
-      S.carry = {}; S.players = {}; S.flares = []; S.sync = {}; S.storm = null;
+      S.carry = {}; S.players = {}; S.flares = []; S.sync = {}; S.storm = null; S.drop = null; S.lanterns = [];
       if (S.launch) { // 발사 시퀀스 도중 저장 → 점화 직전으로 되돌림
         S.launch = false; S.countdown = 0;
         for (const k of ['launch.ignite', 'launch.hold', 'launch.board']) { delete S.od[k]; delete S.os[k]; }

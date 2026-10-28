@@ -23,6 +23,8 @@ export const ITEMS = {
   antenna: { name: '통신 안테나', icon: '📡' },
   phone: { name: '휴대폰', icon: '📱' },
   log: { name: '데이터 로그', icon: '📼' },
+  moonflower: { name: '월광화', icon: '🌼' },
+  lantern: { name: '휴대용 UV 랜턴', icon: '🏮' },
 };
 
 // 들고 옮기는 물건 (heavy = 달리기 불가, 느려짐)
@@ -39,12 +41,13 @@ export const PICK = {
   fiber: { verb: '채집', t: 0.6 }, moss: { verb: '채집', t: 0.8 }, crystal: { verb: '채굴', t: 1.8 },
   resin: { verb: '채취', t: 1.2 }, chitin: { verb: '줍기', t: 0.6 }, water: { verb: '물 뜨기', t: 1.0 },
   battery: { verb: '줍기', t: 0.5 }, navchip: { verb: '줍기', t: 0.5 }, hull: { verb: '줍기', t: 0.7 },
-  log: { verb: '재생', t: 0.4 }, phone: { verb: '줍기', t: 0.3 }, antenna: { verb: '들기', t: 1.0 }, core: { verb: '들기', t: 0.5 },
+  log: { verb: '재생', t: 0.4 }, moonflower: { verb: '채집', t: 0.7 }, phone: { verb: '줍기', t: 0.3 }, antenna: { verb: '들기', t: 1.0 }, core: { verb: '들기', t: 0.5 },
 };
 
-export const RECIPE_ORDER = ['beacon', 'filter', 'purewater', 'fuelcell', 'coil', 'flare'];
+export const RECIPE_ORDER = ['beacon', 'lantern', 'filter', 'purewater', 'fuelcell', 'coil', 'flare'];
 export const RECIPES = {
   beacon: { out: 'beacon', n: 1, cost: { fiber: 4, battery: 1 }, unlock: 'night' },
+  lantern: { out: 'lantern', n: 1, cost: { moonflower: 2, fiber: 2 }, unlock: 'night' },
   filter: { out: 'filter', n: 1, cost: { fiber: 2, resin: 1 }, unlock: 'water' },
   purewater: { out: 'purewater', n: 1, cost: { water: 1 }, tool: 'filter', unlock: 'water' },
   fuelcell: { out: 'fuelcell', n: 1, cost: { moss: 4, purewater: 2 }, unlock: 'fuel' },
@@ -69,6 +72,8 @@ export const SEARCH = [
   { key: 'power', words: ['전력', '코어', '에너지', 'power', 'core', '동력', '핵', '발전', '조명탄', 'flare'],
     title: '고에너지원 — "둥지 핵"',
     body: '파손된 전력 코어를 대체할 수 있는 건 이 행성에 단 하나: 북동쪽 외계 생물 둥지 중심의 생체 에너지 결정이다. 낮에는 경비 개체가 잠들어 있지만, 추출 진동에 깨어난다.\n\n▶ 제작법 해금: UV 조명탄 ×2 (키틴 껍질 ×1 + 발광 이끼 ×1)\n[F]로 던지면 주변 생물이 달아난다. 키틴 껍질은 둥지 주변에 흩어져 있다.' },
+  { key: 'moon', words: ['월광', '꽃', '랜턴', 'lantern', '캡슐', '보급', '드롭'],
+    title: '밤의 기회 — 월광화와 보급 캡슐', body: '"월광화"는 밤에만 꽃잎을 여는 식물이다. 낮에는 봉오리라 채집할 수 없다. 꽃가루가 자외선을 내서 휴대용 UV 랜턴의 재료가 된다.\n\n▶ 제작법: 휴대용 UV 랜턴 (월광화 ×2 + 섬유 ×2) — [G]로 설치하면 60초 동안 반경 9m가 안전 구역이 된다.\n\n밤에는 궤도에 남은 함대 잔해에서 보급 캡슐이 떨어지기도 한다. 열면 자원이 나오지만, 여는 소리가 크다.' },
   { key: 'storm', words: ['폭풍', '포자', '먼지', '바람', 'storm', '날씨'],
     title: '포자 폭풍', body: '녹턴의 낮에는 가끔 거대한 포자 구름이 몰려온다. 폭풍 속에선 시야가 10m 이하로 떨어지고, 어둠을 틈타 야행성 개체가 깨어난다.\n단, 폭풍의 냉기는 결정 평원의 공명 결정을 식힌다 — 폭풍 중엔 낮에도 결정 채굴이 가능하다.' },
   { key: 'screamer', words: ['울보', '비명', '소리', '울음', '우는', 'screamer'],
@@ -189,6 +194,7 @@ export const MISSIONS = [
     start: [
       ['MIRA', '방어등 빛 안쪽에 머물러요. 그리고 손전등… [L] 불빛은 그것들을 불러요. 꼭 필요할 때만 켜세요.'],
       ['MIRA', '쓰러진 대원은 옆에서 [E]를 길게 눌러 일으킬 수 있어요.'],
+      ['MIRA', '밤에만 피는 "월광화"가 보여요. 두 송이와 섬유 두 개로 어디든 세울 수 있는 휴대용 UV 랜턴을 만들 수 있어요. [G]로 설치!'],
       ['MIRA', '방어등 배터리는 밤새 닳아요. 꺼지기 전에 방어등 기둥에서 [E]를 길게 눌러 발전기를 돌려 주세요. 여럿이 돌리면 더 빨라요.'],
     ],
     done: [
@@ -338,5 +344,6 @@ export function genEntities() {
   ring('crystal', 26, P.CRYSTAL, 4, 55);
   ring('resin', 20, P.RESIN, 3, 40);
   ring('chitin', 14, P.NEST, 34, 75); ring('chitin', 6, O, 70, 200);
+  ring('moonflower', 26, O, 35, 170); // 밤에만 피는 꽃 (맨 끝에 추가해 기존 배치는 그대로)
   return E;
 }

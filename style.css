@@ -206,7 +206,7 @@ body.touch.playing #touch { display: block; position: fixed; inset: 0; z-index: 
 .t-jump { right: 22px; bottom: 26px; width: 84px; height: 84px; font-size: 32px; }
 .t-use { right: 118px; bottom: 34px; width: 66px; height: 66px; font-size: 24px; color: var(--accent) !important; }
 .t-sm { width: 50px; height: 50px; font-size: 20px; }
-.t-crouch { right: 120px; bottom: 112px; } .t-light { right: 64px; bottom: 124px; } .t-flare { right: 10px; bottom: 124px; } .t-ping { right: 186px; bottom: 60px; }
+.t-crouch { right: 120px; bottom: 112px; } .t-light { right: 64px; bottom: 124px; } .t-flare { right: 10px; bottom: 124px; } .t-ping { right: 186px; bottom: 60px; } .t-lantern { right: 186px; bottom: 116px; }
 .t-top { position: absolute; top: 46px; right: 6px; display: flex; gap: 6px; }
 .t-top button { position: static !important; width: 40px; height: 40px; border-radius: 10px !important; font-size: 17px; }
 .tn-touch { display: none; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 8px; }
